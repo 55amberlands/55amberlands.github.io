@@ -260,12 +260,12 @@ function paintArena(force) {
     lastField = sig; const n = all.length, size = n <= 14 ? 58 : n <= 30 ? 46 : 38;
     const groups = adm.keys.map(k => ({ k, ps: all.filter(p => p.pid === k) }));
     $('px26Field').style.setProperty('--sz', size + 'px');
-    $('px26Field').innerHTML = groups.map((g, gi) => `<div class="px26-grp" style="--c:${pcol(g.k)}"><b>${g.ps.some(p => p.me) ? '⭐ ปาร์ตี้ของคุณ' : 'ปาร์ตี้ ' + (gi + 1)} <small>${g.ps.length} คน</small></b><div class="rw">${g.ps.map(p => { const ak = V25().auraKind ? V25().auraKind(p.ttl) : ''; return `<div class="px26-ap${p.me ? ' me' : ''}" data-pid="${esc(p.id)}">${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h atk" src="${heroURL({ job: p.job, g: p.g, w: p.w })}" alt=""><small>${esc(p.n)}</small><em class="dm" data-dm="${esc(p.id)}"></em></div>`; }).join('')}</div></div>`).join('') + (adm.full ? '<p class="px26-warn">🚫 มีผู้เข้าร่วมครบ 10 ปาร์ตี้แล้ว — ปาร์ตี้ใหม่รอรอบหน้า</p>' : '');
+    $('px26Field').innerHTML = '<div class="px26-party-stack">' + groups.map((g, gi) => `<div class="px26-grp" style="--c:${pcol(g.k)}"><b>${g.ps.some(p => p.me) ? '⭐ ปาร์ตี้ของคุณ' : 'ปาร์ตี้ ' + (gi + 1)} <small>${g.ps.length} คน</small></b><div class="rw">${g.ps.map(p => { const ak = V25().auraKind ? V25().auraKind(p.ttl) : ''; return `<div class="px26-ap${p.me ? ' me' : ''}" data-pid="${esc(p.id)}">${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h atk" src="${heroURL({ job: p.job, g: p.g, w: p.w })}" alt=""><small>${esc(p.n)}</small><em class="dm" data-dm="${esc(p.id)}"></em></div>`; }).join('')}</div></div>`).join('') + (adm.full ? '<p class="px26-warn">🚫 มีผู้เข้าร่วมครบ 10 ปาร์ตี้แล้ว — ปาร์ตี้ใหม่รอรอบหน้า</p>' : '') + '</div>';
   }
   const rank = ARENA.serverMode ? (ARENA.server?.ranking || []) : all.slice().sort((a,b) => b.d-a.d).slice(0,5);
   const rankText = ARENA.serverMode ? rank.map((p,i) => `${p.rank || i+1}.${esc(p.name)} ${fmt(p.damage)}`).join(' · ')
     : rank.map((p,i) => `${i+1}.${esc(p.n)} ${fmt(p.d)}`).join(' · ');
-  $('px26Foot').innerHTML = (mineIn ? `<span>⚔️ ดาเมจคุณ <b>${fmt(ARENA.me.d)}</b> ${ARENA.serverMode ? '🛡️ SERVER' : '🧪 ซ้อม'}</span>` : '<span class="px26-warn">🚫 ปาร์ตี้ของคุณเกิน 10 ปาร์ตี้ — โหมดผู้ชม</span>') + `<span class="rk">🏆 ${rankText}</span>`;
+  $('px26Foot').innerHTML = (mineIn ? `<span>⚔️ ดาเมจคุณ <b>${fmt(ARENA.me.d)}</b> ${ARENA.serverMode ? '🛡️ SERVER' : '🧪 ซ้อม'}${ARENA.serverMode && ARENA.server?.my_atk ? ' · ATK '+fmt(ARENA.server.my_atk) : ''}</span>` : '<span class="px26-warn">🚫 ปาร์ตี้ของคุณเกิน 10 ปาร์ตี้ — โหมดผู้ชม</span>') + `<span class="rk">🏆 ${rankText}</span>`;
 }
 function popDmg(id, val, crit) {
   const el = document.querySelector(`[data-dm="${CSS.escape(id)}"]`); if (el) { el.textContent = '-' + fmt(val); el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
@@ -323,7 +323,11 @@ async function serverArenaStep(doAttack) {
   finally { ARENA.serverBusy=false; }
 }
 function arenaTick() {
-  if (!ARENA.on || ARENA.done) return; ARENA.tick++;
+  if (!ARENA.on || ARENA.done) return;
+  // Keep the local hero visible throughout a boss fight, including practice.
+  // Remote peers still expire normally if their Realtime presence stops.
+  if (ARENA.me) ARENA.me.seen = Date.now();
+  ARENA.tick++;
   if (ARENA.serverMode) {
     if (ARENA.autoBot || ARENA.manual) { ARENA.manual=false; void serverArenaStep(true); }
     else if (ARENA.tick%3===0) void serverArenaStep(false);
@@ -461,6 +465,46 @@ const css = document.createElement('style'); css.textContent = `
 #px273Actions.px273-collapsed .px273-buttons{display:none}
 #px273Actions.px273-collapsed #px273Toggle{flex-basis:63px;min-width:63px;min-height:27px;font-size:10px;background:#211a37dd}
 @media(max-width:390px){#px273Actions .px273-buttons button{font-size:9px;min-height:31px;padding:4px 1px}#px273Actions #px273Toggle{flex-basis:33px;min-width:33px;min-height:31px}#px273Actions.px273-collapsed #px273Toggle{flex-basis:63px;min-width:63px}}
+
+/* V27.3.3: party field is a scroll viewport, never a bottom-aligned flex-wrap.
+   A separate inner stack preserves all party rows when the viewport is shorter
+   than the contents. This is a layout-only patch; characters are never hidden. */
+#px26Arena .px26-field{
+  display:block !important;
+  flex:1 1 0 !important;
+  min-height:0 !important;
+  min-width:0;
+  overflow-y:auto !important;
+  overflow-x:hidden !important;
+  padding:8px 8px 16px !important;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-y;
+  scroll-padding-top:8px;
+}
+#px26Arena .px26-party-stack{
+  display:flex;
+  flex-flow:row wrap;
+  align-items:flex-start;
+  align-content:flex-start;
+  justify-content:center;
+  width:100%;
+  box-sizing:border-box;
+  gap:8px;
+  min-height:0;
+}
+#px26Arena .px26-grp{align-self:flex-start;max-width:100%;box-sizing:border-box}
+#px26Arena .px26-grp .rw{min-height:0;overflow:visible}
+#px26Arena .px26-bimg{height:min(24dvh,200px) !important}
+#px26Arena .px26-bimg img{max-height:100%;object-fit:contain}
+#px26Arena .px26-top,#px26Arena .px26-boss,#px273Vitals,#px273Actions,#px26Arena .px26-foot{
+  flex-shrink:0;
+}
+@media(max-height:700px){
+  #px26Arena .px26-bimg{height:min(20dvh,150px) !important}
+  #px26Arena .px26-top{padding:5px 10px}
+}
+
 #px26Hub{position:relative}
 `;
 document.head.appendChild(css);
