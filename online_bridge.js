@@ -80,17 +80,37 @@
     if(!currentUser||!STATUS.cloudReady||cloudBusy||marketBusy)return false;
     cloudBusy=true;
     try{
-      const {data,error}=await sb.rpc('amber_save_guarded',{p_save:gameState(),p_market_version:marketVersion});
+      // V28.1: Legacy autosave is UI/settings-only. The backend owns gold,
+      // EXP, bags, equipment, drops, enhancements, dungeon and quest rewards.
+      // Never submit state as a trusted save, including when leaving the page.
+      const logData=(Array.isArray(state.log)?state.log:[]).slice(-20)
+        .map(x=>({
+          msg:String(x?.msg||'').slice(0,180),
+          type:String(x?.type||'sys').slice(0,20),
+          time:String(x?.time||'').slice(0,16)
+        }));
+      const visual={
+        log:logData,
+        auto:!!state.auto,
+        autopot:!!state.autopot,
+        autoSkill:!!state.autoSkill,
+        hpthreshold:Math.max(1,Math.min(99,Math.floor(Number(state.hpthreshold)||70))),
+        mpthreshold:Math.max(1,Math.min(99,Math.floor(Number(state.mpthreshold)||50)))
+      };
+      // Map and mob selection have their own authenticated RPC calls.
+      const {data,error}=await sb.rpc('amber_v277_visual_save',{p_visual:visual});
       if(error)throw error;
-      if(data!==true){
-        await refreshMarketEconomy();
-        if(manual && typeof notify==='function')notify('🔄 อัปเดตรายการตลาดและจำนวนไอเทมแล้ว');
-        return false;
-      }
-      if(manual && typeof notify==='function')notify('✅ เซฟ Google สำเร็จ');
+      if(data!==true)throw new Error('VISUAL_SAVE_NOT_CONFIRMED');
+      STATUS.message='';
+      if(manual&&typeof notify==='function')notify('✅ บันทึกการตั้งค่าผ่าน Supabase แล้ว');
       return true;
-    }catch(e){console.error('[AMBER] cloud save:',e);STATUS.message='เซฟคลาวด์ผิดพลาด: '+e.message;stateText();if(manual && typeof notify==='function')notify('บันทึกไม่สำเร็จ '+e.message);return false}
-    finally{cloudBusy=false}
+    }catch(e){
+      console.warn('[AMBER V28.1] visual-only save:',e);
+      STATUS.message='บันทึกการตั้งค่าไม่สำเร็จ: '+e.message;
+      stateText();
+      if(manual&&typeof notify==='function')notify(STATUS.message);
+      return false;
+    }finally{cloudBusy=false}
   }
   async function beginMarket(){
     if(!currentUser||!STATUS.cloudReady)throw new Error('กรุณาล็อกอิน Google ก่อน');
