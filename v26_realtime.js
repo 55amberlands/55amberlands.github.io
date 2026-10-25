@@ -166,7 +166,7 @@ onNet('v26jr', m => {
 });
 
 /* =============================================================== C. world boss arena */
-const ARENA = { on: false, practice: false, ev: '', boss: null, me: null, roster: {}, bots: [], t0: 0, done: false, tick: 0, hb: 0, timers: [] };
+const ARENA = { on: false, practice: false, simulated: false, ev: '', boss: null, me: null, roster: {}, bots: [], t0: 0, done: false, tick: 0, hb: 0, timers: [] };
 const eventKey = () => { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate() + 'T18'; };
 function pickBoss() {
   const bs = (typeof MONS !== 'undefined' ? MONS : []).filter(m => m.boss && PX.creatures.TABLE[m.name]); if (!bs.length) return null;
@@ -200,10 +200,14 @@ function openArena(practice) {
   if (!practice && !w.open) { practice = true; }
   safe(() => closeModal());
   if (ARENA.on) return;
-  Object.assign(ARENA, { on: true, practice: !!practice, ev: practice ? 'prac' + Date.now() : eventKey(), boss: pickBoss(), roster: {}, bots: [], t0: Date.now(), done: false, tick: 0, hb: 0 });
+  Object.assign(ARENA, { on: true, practice: !!practice, simulated: false, ev: practice ? 'prac' + Date.now() : eventKey(), boss: pickBoss(), roster: {}, bots: [], t0: Date.now(), done: false, tick: 0, hb: 0 });
   if (!ARENA.boss) { ARENA.on = false; safe(() => notify('ยังไม่มีบอสให้จัดกิจกรรม')); return; }
   ARENA.me = myRow(); ARENA.me.d = 0; ARENA.me.j = Date.now();
-  if (practice || !isOnline() || FAKE.on) startBots();
+  if (practice || !isOnline() || FAKE.on) {
+    startBots();
+    // Synthetic opponents can be used for a visual test, never for a real payout.
+    ARENA.simulated = true;
+  }
   buildArena();
   ARENA.timers.push(setInterval(arenaTick, 1000));
 }
@@ -211,7 +215,7 @@ function closeArena() { ARENA.timers.forEach(clearInterval); ARENA.timers = []; 
 function buildArena() {
   $('px26Arena')?.remove(); const b = ARENA.boss;
   const a = document.createElement('div'); a.id = 'px26Arena';
-  a.innerHTML = `<canvas id="px26Bg"></canvas><div class="px26-top"><div><b>👑 ${ARENA.practice ? 'ซ้อมบอสโลก (ไม่มีรางวัลจริง)' : 'บอสโลกกิจกรรม 18:00'}</b> <small id="px26Time"></small></div><button data-px26="arx">✖ ออก</button></div>
+  a.innerHTML = `<canvas id="px26Bg"></canvas><div class="px26-top"><div><b>👑 ${ARENA.practice || ARENA.simulated ? 'ซ้อม/จำลองบอสโลก (ไม่มีรางวัลจริง)' : 'บอสโลกกิจกรรม 18:00'}</b> <small id="px26Time"></small></div><button data-px26="arx">✖ ออก</button></div>
   <div class="px26-boss"><div class="px26-bn">${esc(b.name)} <small>Lv.${b.lv}</small></div><div class="px26-bbar"><i id="px26Hp"></i><span id="px26HpT"></span></div><div class="px26-bimg"><img id="px26Boss" src="${PX.creatures.reg(b.name)}" alt=""><div id="px26Fx"></div></div></div>
   <div class="px26-field" id="px26Field"></div><div class="px26-foot" id="px26Foot"></div>`;
   document.body.appendChild(a);
@@ -254,20 +258,47 @@ function arenaTick() {
   if (total() >= bossMax()) finishArena(true); else if (!ARENA.practice && !w.open) finishArena(false);
 }
 function finishArena(win) {
-  if (ARENA.done) return; ARENA.done = true; const all = allPlayers().slice().sort((a, b) => b.d - a.d), myRank = all.findIndex(p => p.me) + 1, v = safe(() => V25().V(), null);
-  let rewardTxt = '';
-  if (!ARENA.practice && v && v.wb.claimed !== ARENA.ev && myRank > 0) {
-    // V27.1.1: NEVER grant browser-computed boss rewards. Live payout must
-    // use a server-issued world proof and the amber_ac_world_claim RPC.
-    v.wb.claimed = ARENA.ev;
-    v.wb.total = (v.wb.total | 0) + (win ? 1 : 0);
-    v.wb.dmg = (v.wb.dmg | 0) + ARENA.me.d;
-    rewardTxt = '🛡️ รางวัลรอผลที่เซิร์ฟเวอร์รับรอง (ยังไม่เพิ่มคอยล์/Gold/แร่)';
-    if (win && window.AMBER_V27) void window.AMBER_V27.worldClaim();
-    safe(() => { V25().commit(); V25().refresh(); });
+  if (ARENA.done) return;
+  ARENA.done = true;
+  const all = allPlayers().slice().sort((a, b) => b.d - a.d);
+  const myRank = all.findIndex(p => p.me) + 1;
+  const v = safe(() => V25().V(), null);
+  const event = ARENA.ev;
+  const simulated = ARENA.practice || ARENA.simulated;
+  let rewardTxt = simulated ? 'โหมดซ้อมหรือมีผู้เล่นจำลอง: ไม่มีรางวัลจริง'
+    : !win ? 'ยังปราบบอสไม่สำเร็จ: ไม่มีรางวัล'
+    : '⏳ กำลังให้เซิร์ฟเวอร์ตรวจสอบสิทธิ์ (ยังไม่ได้รับคอยล์/Gold/แร่)';
+
+  // Local arena damage/rank can be forged: NEVER use them as proof of entitlement.
+  // Only a successful server RPC may mark this event claimed or increment world victories.
+  if (!simulated && win && v && myRank > 0 && window.AMBER_V27?.worldClaim) {
+    void Promise.resolve().then(() => window.AMBER_V27.worldClaim()).then(result => {
+      if (result?.ok === true) {
+        v.wb.claimed = event;
+        v.wb.total = (v.wb.total | 0) + 1;
+        safe(() => { V25().commit(); V25().refresh(); });
+        rewardTxt = '✅ เซิร์ฟเวอร์ยืนยันแล้ว: จ่ายรางวัลสำเร็จ';
+      } else if (result?.reason === 'already_claimed') {
+        v.wb.claimed = event;
+        safe(() => V25().commit());
+        rewardTxt = '✅ เซิร์ฟเวอร์ระบุว่ารับรางวัลรอบนี้แล้ว';
+      } else {
+        rewardTxt = '🛡️ เซิร์ฟเวอร์ยังไม่อนุมัติรางวัล (ไม่มีการหักสิทธิ์รับรางวัล)';
+      }
+      if (ARENA.ev === event && ARENA.done) {
+        const status = $('px26RewardStatus');
+        if (status) status.textContent = rewardTxt;
+      }
+    }).catch(e => {
+      console.error('[V27.2 boss claim]', e);
+      if (ARENA.ev === event && ARENA.done) {
+        const status = $('px26RewardStatus');
+        if (status) status.textContent = '🛡️ ตรวจสอบรางวัลไม่สำเร็จ กรุณาตรวจสถานะเซิร์ฟเวอร์';
+      }
+    });
   }
   const res = document.createElement('div'); res.className = 'px26-res';
-  res.innerHTML = `<div class="box"><h2>${win ? '🏆 ปราบบอสสำเร็จ!' : '⌛ บอสหนีไปแล้ว'}</h2><p>${esc(ARENA.boss.name)} · ผู้ร่วมรบ ${all.length} คน</p><ol>${all.slice(0, 10).map(p => `<li${p.me ? ' class="me"' : ''}>${esc(p.n)} <b>${fmt(p.d)}</b></li>`).join('')}</ol><p>${ARENA.practice ? '<small>โหมดซ้อม: ไม่มีรางวัล</small>' : (rewardTxt ? '🎁 ' + esc(rewardTxt) : (myRank ? '<small>รับรางวัลของกิจกรรมนี้ไปแล้ว</small>' : ''))}</p><button class="goldbtn" data-px26="arx">ปิด</button></div>`;
+  res.innerHTML = `<div class="box"><h2>${win ? (simulated ? '⚔️ จบการซ้อมบอส' : '🏆 ปราบบอสสำเร็จ!') : '⌛ บอสหนีไปแล้ว'}</h2><p>${esc(ARENA.boss.name)} · ผู้ร่วมรบ ${all.length} คน</p><ol>${all.slice(0, 10).map(p => `<li${p.me ? ' class="me"' : ''}>${esc(p.n)} <b>${fmt(p.d)}</b></li>`).join('')}</ol><p id="px26RewardStatus">${esc(rewardTxt)}</p><button class="goldbtn" data-px26="arx">ปิด</button></div>`;
   $('px26Arena')?.appendChild(res);
 }
 

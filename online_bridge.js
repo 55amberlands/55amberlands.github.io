@@ -386,7 +386,7 @@
         ch.on('broadcast',{event:'game'},({payload})=>{
           if(id!==generation||!subscribed)return;
           if(!payload||typeof payload.by!=='string'||!payload.data||!payload.evt)return;
-          if(!['pinv','pans','pchat','wchat','pdrop','pxp','sfx','market','skill23','dg23'].includes(payload.evt))return;
+          if(!['pinv','pans','pchat','wchat','pdrop','pxp','sfx','market','skill23','dg23','v26wb','v26jr'].includes(payload.evt))return;
           const ps=ch.presenceState();
           const live=Object.values(ps).flat().some(p=>p.user_id===payload.by);
           if(!live)return;
@@ -479,7 +479,7 @@
       onPeers(fn){callbacks.add(fn);lastPeerSignature='';setTimeout(peers,0)},
       on(evt,fn){if(!listeners.has(evt))listeners.set(evt,[]);listeners.get(evt).push(fn)},
       async emit(evt,data){
-        if(!['pinv','pans','pchat','wchat','pdrop','pxp','sfx','market','skill23','dg23'].includes(evt))throw new Error('ฟีเจอร์นี้ยังต้องใช้เซิร์ฟเวอร์เกม');
+        if(!['pinv','pans','pchat','wchat','pdrop','pxp','sfx','market','skill23','dg23','v26wb','v26jr'].includes(evt))throw new Error('ฟีเจอร์นี้ยังต้องใช้เซิร์ฟเวอร์เกม');
         if(!connected())throw new Error('Realtime กำลังเชื่อมต่อใหม่');
         const result=await topic.send({type:'broadcast',event:'game',payload:{by:currentUser.id,evt,data}});
         if(result!=='ok')throw new Error('ส่งข้อมูลไม่สำเร็จ: '+result);

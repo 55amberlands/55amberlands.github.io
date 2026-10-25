@@ -58,8 +58,8 @@
   }[code] || String(code || 'เซิร์ฟเวอร์ยังไม่อนุมัติรางวัล'));
 
   async function claimRpc(name, params, success) {
-    if (!ready()) { warn('ต้องล็อกอิน Google และโหลดตัวละครให้เสร็จก่อน'); return; }
-    if (busy) { warn('กำลังตรวจรายการก่อนหน้า'); return; }
+    if (!ready()) { warn('ต้องล็อกอิน Google และโหลดตัวละครให้เสร็จก่อน'); return {ok:false, reason:'login_required'}; }
+    if (busy) { warn('กำลังตรวจรายการก่อนหน้า'); return {ok:false, reason:'busy'}; }
     busy = true;
     let locked = false;
     try {
@@ -69,7 +69,7 @@
       locked = true;
       const { data, error } = await cloud().getClient().rpc(name, params || {});
       if (error) throw error;
-      if (data?.ok !== true) { warn(reason(data?.reason)); return; }
+      if (data?.ok !== true) { warn(reason(data?.reason)); return {ok:false, reason:data?.reason || 'rejected'}; }
       // Pull server wallet AFTER the RPC transaction. endMarket also unlocks autosave.
       await cloud().endMarket();
       locked = false;
@@ -77,9 +77,11 @@
       if (success) await success(data);
       v25()?.refresh();
       warn('ยืนยันจากเซิร์ฟเวอร์แล้ว' + (data.reward ? ' · ' + formatReward(data.reward) : ''));
+      return {ok:true, data};
     } catch (e) {
       console.error('[V27 claim]', name, e);
       warn('ทำรายการไม่สำเร็จ: ' + (e?.message || String(e)));
+      return {ok:false, reason:'rpc_error'};
     } finally {
       if (locked) { try { await cloud().endMarket(); } catch (e) { console.error('[V27 unlock]', e); } }
       busy = false;
@@ -119,10 +121,9 @@
   }
   async function worldClaim() {
     const info = await syncState(true);
-    if (!info?.today_th) { warn('ยังตรวจวันที่กิจกรรมจากเซิร์ฟเวอร์ไม่ได้'); return; }
-    await claimRpc('amber_ac_world_claim', { p_event_day: info.today_th }, async () => {
-      await v25()?.open('boss');
-    });
+    if (!info?.today_th) { warn('ยังตรวจวันที่กิจกรรมจากเซิร์ฟเวอร์ไม่ได้'); return {ok:false, reason:'server_date_unavailable'}; }
+    // Return the server receipt. Arena must NEVER mark victory rewards claimed before this is ok.
+    return await claimRpc('amber_ac_world_claim', { p_event_day: info.today_th });
   }
 
   // Only authoritative RPC payouts are trusted. Do not provide any grant bypass.
