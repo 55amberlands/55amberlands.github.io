@@ -71,11 +71,12 @@
       </section>`);
   };
 
-  function drink(type) {
+  async function drink(type) {
     if (type !== 'hp' && type !== 'mp') return;
     const k = type === 'hp' ? 'hp' : 'mp';
     const before = Number(state[k] || 0);
-    const ok = usePotion(type, false); // authoritative decrement, HP/MP restoration
+    // V28.3: usePotion is an async server RPC; wait for the result before repainting.
+    const ok = await Promise.resolve(usePotion(type, false));
     if (!ok && state.hp > 0 && before >= (type === 'hp' ? maxHp() : maxMp())) {
       notify((type === 'hp' ? 'HP' : 'MP') + ' เต็มแล้ว ไม่ต้องใช้ยา');
     }

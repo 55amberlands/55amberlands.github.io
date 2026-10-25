@@ -22,7 +22,14 @@ function ensureSlots(){
  state.autoSkillSlots=state.autoSkillSlots.slice(0,SLOT_COUNT).map(id=>id&&learned().some(x=>x.id===id)?id:null);
  while(state.autoSkillSlots.length<SLOT_COUNT)state.autoSkillSlots.push(null);
 }
-function commit(){ensureSlots();save();}
+function commit(){
+ ensureSlots();save();
+ // V28.3: explicitly persist selected AUTO slots via authenticated server RPC.
+ const slots=[...state.autoSkillSlots];
+ if(window.AMBER_V283?.saveSlots){
+   void window.AMBER_V283.saveSlots(slots).catch(e=>console.warn('[V28.3 AUTO slot save]',e));
+ }else notify('⚠️ รอเชื่อม Supabase เพื่อบันทึกช่องสกิล AUTO');
+}
 function titleFor(id){const sk=SKILLS.find(s=>s.id===id);return sk?.name||'ว่าง'}
 function renderSlots(){
  const host=$('amber19SkillSlots');if(!host)return;

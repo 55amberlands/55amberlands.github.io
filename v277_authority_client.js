@@ -1,10 +1,13 @@
-/* 55 AMBERLANDS V27.7 -- SERVER-OWNED ACTIONS
+/* 55 AMBERLANDS V28.3 -- SERVER-OWNED ACTIONS
  * Browser only sends intents. No damage/Gold/EXP/upgrade outcome is accepted from JS.
  * Incomplete legacy systems MUST NOT be treated as securely migrated.
  */
 (() => {
 'use strict';
 let busy=false;
+// One server action at a time; avoid cancelling AUTO on transient network failures.
+let autoRetryAfter=0,autoErrorCount=0;
+let slotsPending=false,desiredSlots=null,slotQueue=Promise.resolve();
 const C=()=>window.AMBER_CLOUD;
 const ready=()=>Boolean(C()?.getStatus?.()?.cloudReady && C()?.getClient?.());
 const tell=t=>{try{notify(t)}catch{console.log(t)}};
@@ -12,6 +15,8 @@ function apply(serverSave){
  if(!serverSave||typeof serverSave!=='object')throw Error('INVALID_SERVER_SAVE');
  const auto=!!state.auto,logNow=Array.isArray(state.log)?state.log:[];
  state={...starter(),...serverSave,auto,log:logNow};
+ // Do not display an obsolete slot snapshot while an explicit edit is saving.
+ if(slotsPending && desiredSlots)state.autoSkillSlots=[...desiredSlots];
  save();render();
 }
 async function invoke(proc,args,{silent=false}={}){
@@ -36,32 +41,91 @@ const recovery=(action,id=null)=>invoke('amber_v277_recovery',{p_action:action,p
 let selectedShopItemId=null;
 document.addEventListener('pointerdown',evt=>{const tile=evt.target.closest?.('[data-am21-shop-bag]');if(tile)selectedShopItemId=tile.dataset.am21ShopBag;},true);
 
-// V27.7 replaces the final wrapped tick (including legacy random local drops).
-window.tick=async function v277ServerTick(){
- if(!ready()||busy)return;
+// V28.3: normal-map AUTO uses one atomic server action (optional potion + attack).
+// Server validates skill ownership, inventory stock, HP/MP and damage.
+window.tick=async function v283ServerTick(){
+ if(!ready()||busy||Date.now()<autoRetryAfter)return;
  const m=mob();
  if(!m||m.boss){if(state.auto)stop();tell('👑 บอสต้องเข้าเรดหรือดันเจียนที่ Supabase ตรวจสอบ');return;}
  const oldLevel=Number(state.lv)||1;
  const lastAuto=!!state.auto;
- const usable=SKILLS.filter(x=>state.learned.includes(x.id)&&!x.buff&&state.mp>=x.mp);
- const queued=window.AMBER_V12?.takeQueuedSkill?.(usable)
-   || (state.auto && state.autoSkill && usable.length && Math.random()<0.35
-       ? usable[Math.floor(Math.random()*usable.length)] : null);
+ const learned=Array.isArray(state.learned)?state.learned:[];
+ const usable=SKILLS.filter(x=>learned.includes(x.id)&&!x.buff&&Number(state.mp)>=Number(x.mp));
+ // A manually queued skill is permitted; AUTO only selects the configured 6 slots.
+ const manual=window.AMBER_V12?.takeQueuedSkill?.(usable)||null;
+ const picked=manual||(lastAuto && state.autoSkill && Math.random()<0.35
+   ? (window.AMBER_V19?.pickSkill?.(usable)||null):null);
+ const params={p_monster_id:m.id,p_skill_id:picked?.id||null};
+ if(lastAuto){
+   Object.assign(params,{p_auto_potion:!!state.autopot,
+     p_hp_threshold:Math.max(1,Math.min(99,Math.round(Number(state.hpthreshold)||70))),
+     p_mp_threshold:Math.max(1,Math.min(99,Math.round(Number(state.mpthreshold)||50)))});
+ }
  try{
-   const r=await invoke('amber_v277_attack',{p_monster_id:m.id,p_skill_id:queued?.id||null},{silent:true});
+   const r=await invoke(lastAuto?'amber_v283_auto_attack':'amber_v277_attack',params,{silent:true});
+   autoErrorCount=0;autoRetryAfter=0;
    currentHp=Number(r.monster_hp??m.hp);
    if(Number(state.lv)>oldLevel)levelNotice(oldLevel);
-   if(Number(r.damage)>0){showDamage(Number(r.damage));window.AMBER_FX?.onBasicHit?.(Number(r.damage),m,{crit:!!r.crit})}
-   if(r.killed){log('🛡️ Supabase ยืนยันกำจัด '+m.name+' +' +r.reward_exp+' EXP +' +r.reward_gold+' Gold','good');
-      if(r.drop_name)log('🎁 ดรอป: '+r.drop_name+' (ยืนยันบนเซิร์ฟเวอร์)','loot');}
+   if(Number(r.damage)>0){
+     showDamage(Number(r.damage));
+     if(picked)window.AMBER_FX?.onAttack?.(picked,Number(r.damage),m);
+     else window.AMBER_FX?.onBasicHit?.(Number(r.damage),m,{crit:!!r.crit});
+   }
+   if(r.auto_hp_used||r.auto_mp_used)log('🧪 AUTO ยา: '+[r.auto_hp_used?'HP':'',r.auto_mp_used?'MP':''].filter(Boolean).join(' + '),'good');
+   if(r.killed){
+     log('🛡️ Supabase ยืนยันกำจัด '+m.name+' +'+r.reward_exp+' EXP +'+r.reward_gold+' Gold','good');
+     if(r.drop_name)log('🎁 ดรอป: '+r.drop_name+' (ยืนยันบนเซิร์ฟเวอร์)','loot');
+   }
    if(state.hp<=0&&typeof showRevive==='function'){stop();showRevive();}
    renderTop();renderScene();renderBag();
  }catch(e){
-   if(String(e.message).includes('COOLDOWN'))return;
-   if(lastAuto)stop();
-   tell('🛡️ โจมตีไม่สำเร็จ: '+String(e.message||e).slice(0,90));
+   const message=String(e.message||e);
+   if(/COOLDOWN|ระบบกำลังทำรายการ/.test(message))return;
+   const hard=/LEVEL_LOCK|MAP_MISMATCH|MONSTER_NOT_FOUND|SKILL_INVALID|MP_LOW|CHARACTER_DEAD|BAD_SAVE|V283_STATE_INVALID|V283_THRESHOLD_INVALID/i.test(message);
+   if(hard){if(lastAuto)stop();tell('🛡️ ต้องตรวจสถานะ AUTO: '+message.slice(0,90));return;}
+   // Temporary connection/server error: retry with bounded backoff instead of stopping.
+   autoErrorCount=Math.min(5,autoErrorCount+1);
+   autoRetryAfter=Date.now()+Math.min(10000,850*Math.pow(2,autoErrorCount));
+   if(autoErrorCount===1)tell('⚠️ AUTO รอเชื่อม Supabase อีกครั้ง: '+message.slice(0,70));
+   if(autoErrorCount>=5){if(lastAuto)stop();tell('⏹ หยุด AUTO หลังเชื่อมต่อผิดพลาดซ้ำ 5 ครั้ง');}
  }
 };
+// Original UI/start-stop logic remains; only throttle the loop to the server's 750ms cooldown.
+const legacyStart=window.start;
+if(typeof legacyStart==='function')window.start=function v283Start(){
+ legacyStart();
+ if(state.auto && typeof timer!=='undefined' && timer){
+   clearInterval(timer);
+   timer=setInterval(()=>window.tick(),Math.max(840,Math.round(925-(Number(state.stats?.AGI)||0)*2)));
+ }
+};
+// Save the exact 6 chosen slots on Supabase, not inside the writable legacy save.
+async function persistSlots(slots){
+ if(!ready())throw Error('ต้องเชื่อม Supabase ก่อนบันทึกช่องสกิล');
+ const {data,error}=await C().getClient().rpc('amber_v283_auto_skill_slots',{p_slots:slots});
+ if(error)throw error;
+ if(!data?.ok)throw Error('V283_SLOTS_NOT_CONFIRMED');
+ return data;
+}
+function saveSlots(slots){
+ desiredSlots=Array.isArray(slots)?[...slots]:null;
+ if(!desiredSlots||desiredSlots.length!==6)return Promise.reject(Error('ต้องมี 6 ช่องสกิล'));
+ slotsPending=true;
+ const snapshot=[...desiredSlots];
+ slotQueue=slotQueue.catch(()=>{}).then(()=>persistSlots(snapshot)).then(result=>{
+   if(JSON.stringify(desiredSlots)===JSON.stringify(snapshot)){
+     slotsPending=false;
+     state.autoSkillSlots=[...result.slots];
+   }
+   return result;
+ }).catch(err=>{
+   slotsPending=false;
+   tell('⚠️ บันทึกช่อง AUTO ไม่สำเร็จ: '+String(err.message||err).slice(0,80));
+   throw err;
+ });
+ return slotQueue;
+}
+window.AMBER_V283={version:'28.3',saveSlots};
 
 window.buy=async function v277BuyPotion(type){
  try{await economy('buy_potion',{type});tell('✅ Supabase อนุมัติการซื้อยา');}catch{}
@@ -142,6 +206,6 @@ window.chooseMob=function v277Mob(id){
  if(ready())C().getClient().rpc('amber_v277_visual_save',{p_visual:{mob:state.mob}})
   .then(({error})=>{if(error)tell('เลือกมอนสเตอร์ไม่สำเร็จ: '+error.message)});
 };
-window.AMBER_V277={version:'27.7',mode:'SERVER_ACTION_RPC',ready,invoke,combat:'38 normal monsters',shop:'server',enhance:'server',inventory:'server'};
-console.info('[AMBER V27.7] Server-authoritative actions installed');
+window.AMBER_V277={version:'28.3',mode:'SERVER_ACTION_RPC',ready,invoke,combat:'38 normal monsters',shop:'server',enhance:'server',inventory:'server'};
+console.info('[AMBER V28.3] Server-authoritative actions installed');
 })();
