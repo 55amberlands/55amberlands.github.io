@@ -154,14 +154,54 @@ function ensureDaily() {
   v.daily = { date: today, bonus: false, m: [pick[0], a, b].map(p => ({ id: p.id, have: p.auto ? 1 : 0, need: p.need(st.lv), claimed: false })) };
 }
 function bump(id, n = 1) { const v = V(); ensureDaily(); const m = v.daily.m.find(x => x.id === id || (id === 'kill' && x.id === 'kill2')); v.daily.m.forEach(x => { if ((id === 'kill' && (x.id === 'kill' || x.id === 'kill2')) || x.id === id) x.have = Math.min(x.need, x.have + n); }); }
-function claimMission(i) {
-  const m = V().daily.m[i];
-  if (!m || m.claimed || m.have < m.need) return;
-  if (m.id === 'login' && online() && window.AMBER_V27) return void window.AMBER_V27.loginMission(i);
-  safe(() => notify('🛡️ ภารกิจนี้รอหลักฐานจากเซิร์ฟเวอร์ จึงยังจ่ายรางวัลไม่ได้'));
+// V27.9: Daily missions read ONLY server-verified evidence, never local .have counters.
+let missionBusy = false;
+async function missionRefresh() {
+  if (!online()) throw Error('ต้องเข้าสู่ระบบ Google และเชื่อม Supabase ก่อน');
+  const { data, error } = await sb().rpc('amber_v279_mission_status');
+  if (error) throw error;
+  if (!data?.ok || !Array.isArray(data.m) || data.m.length !== 3) throw Error('MISSION_STATUS_NOT_READY');
+  V().daily = {date: String(data.date), bonus: !!data.bonus,
+    m: data.m.map(x => ({id: String(x.id), have: Math.max(0, Number(x.have) || 0),
+      need: Math.max(1, Number(x.need) || 1), claimed: !!x.claimed}))};
+  return data;
 }
-function claimDailyBonus() {
-  safe(() => notify('🛡️ หีบรวมรายวันรอระบบยืนยันภารกิจจากเซิร์ฟเวอร์'));
+async function missionClaimRpc(mission) {
+  if (missionBusy) return;
+  missionBusy = true;
+  let locked = false;
+  try {
+    if (!online()) throw Error('ต้องเชื่อม Supabase ก่อนรับรางวัล');
+    await cloud().beginMarket();
+    locked = true;
+    const {data, error} = await sb().rpc('amber_v279_mission_claim',{p_mission: mission});
+    if (error) throw error;
+    if (!data?.ok) {
+      const reason = ({already_claimed:'ได้รับรางวัลนี้แล้ว',not_today_mission:'เควสต์นี้ไม่ใช่ภารกิจวันนี้',
+        not_enough_server_evidence:'หลักฐานจากเซิร์ฟเวอร์ยังไม่ครบ',
+        three_missions_not_claimed:'ต้องรับรางวัลทั้งสามเควสต์ก่อนเปิดหีบ',
+        invalid_mission:'ประเภทเควสต์ไม่ถูกต้อง'})[data?.reason] || 'Supabase ยังไม่อนุมัติ';
+      notify('🛡️ '+reason+(data?.reason==='not_enough_server_evidence'?` (${data.verified}/${data.need})`:''));
+      return;
+    }
+    notify('✅ Supabase จ่ายรางวัลเควสต์ให้แล้ว');
+  } catch (e) {
+    console.error('[V27.9 mission claim]',e);
+    notify('รับรางวัลเควสต์ไม่สำเร็จ: '+String(e.message || e).slice(0,105));
+  } finally {
+    if (locked) try { await cloud().endMarket(); } catch(e) {console.warn('[V27.9 mission sync]',e);}
+    missionBusy = false;
+    try {await missionRefresh();} catch (e) { console.warn('[V27.9 mission status]',e); }
+  }
+}
+async function claimMission(i) {
+  const m = V().daily?.m?.[i];
+  if (!m || m.claimed || m.have < m.need) return;
+  if (m.id === 'login' && online() && window.AMBER_V27) return window.AMBER_V27.loginMission(i);
+  return missionClaimRpc(m.id);
+}
+async function claimDailyBonus() {
+  return missionClaimRpc('daily_bonus');
 }
 
 /* ------------------------------------------------------------------ hooks: kills, skills, enhance, raid win */
@@ -356,9 +396,12 @@ function tabCheckin() {
   const { c, can, broken } = ckState(), day = broken || c.day >= 7 ? 0 : c.day;
   return `<p class="px25-hint">เช็กอินทุกวันต่อเนื่อง 7 วัน — รางวัลเป็นแร่ตีบวก วันที่ 7 ได้หีบแร่ใหญ่ ${broken ? '<b style="color:#ff8a8a">(ขาดวัน — เริ่มนับใหม่)</b>' : ''}</p><div class="px25-days">${CK_REWARDS.map((r, i) => `<div class="px25-day${i < day ? ' got' : ''}${i === day && can ? ' now' : ''}"><small>วัน ${i + 1}</small><img src="${PX.ui.rewardTile(r.ic, r.rain ? 'rain' : 'p', 44)}" alt=""><em>${grantText(r) || ''}${r.hp ? ' ยา×' + r.hp : ''}</em>${i < day ? '<span>✅</span>' : ''}</div>`).join('')}</div><button class="goldbtn px25-big" data-v25="checkin" ${can ? '' : 'disabled'}>${can ? '📅 เช็กอินวันนี้' : '✅ เช็กอินแล้ววันนี้ — กลับมาพรุ่งนี้'}</button>`;
 }
-function tabDaily() {
-  const v = V(); ensureDaily(); const all = v.daily.m.every(m => m.claimed);
-  return `<p class="px25-hint">ภารกิจรีเซ็ตทุกเที่ยงคืน · ทำครบ 3 อย่างได้หีบโบนัส</p><div class="px25-ms">${v.daily.m.map((m, i) => { const p = POOL.find(x => x.id === m.id), r = p.r(S().lv); const pct = Math.round(100 * m.have / m.need); return `<div class="px25-m${m.claimed ? ' got' : ''}"><b>${esc(p.t(S().lv))}</b><div class="px25-pb"><i style="width:${pct}%"></i><span>${m.have}/${m.need}</span></div><small>${grantText(r)}${r.hp ? ' · ยา HP×' + r.hp : ''}${r.mp ? ' · ยา MP×' + r.mp : ''}</small>${m.claimed ? '<span>✅</span>' : `<button data-v25="mclaim" data-i="${i}" ${m.have >= m.need ? '' : 'disabled'}>รับ</button>`}</div>`; }).join('')}</div><div class="px25-m ${v.daily.bonus ? 'got' : ''}"><b>🎁 หีบโบนัสรายวัน</b><small>${grantText({ gems: 40, ore_prism: 1, ga: 3, gw: 2 })}</small>${v.daily.bonus ? '<span>✅</span>' : `<button class="goldbtn" data-v25="dbonus" ${all ? '' : 'disabled'}>เปิดหีบ</button>`}</div>`;
+async function tabDaily() {
+  if (!online()) return '<p class="px25-warn">🔒 ต้องเชื่อม Supabase เพื่อดูหลักฐานเควสต์และรับรางวัล</p>';
+  try { await missionRefresh(); }
+  catch(e) { console.error('[V27.9 mission load]',e); return '<p class="px25-warn">❌ โหลดหลักฐานเควสต์จากเซิร์ฟเวอร์ไม่สำเร็จ กรุณาลองใหม่</p>'; }
+  const v = V(); const all = v.daily.m.every(m => m.claimed);
+  return `<p class="px25-hint">ภารกิจรีเซ็ตทุกเที่ยงคืน · ทำครบ 3 อย่างได้หีบโบนัส</p><p class="px25-hint">🛡️ นับเฉพาะการฆ่ามอน ใช้สกิล ตีบวก และเรดที่ Supabase บันทึกผลจริง · จำนวนที่เคยนับเฉพาะในมือถือจะไม่นำมาคิด</p><div class="px25-ms">${v.daily.m.map((m, i) => { const p = POOL.find(x => x.id === m.id), r = p.r(S().lv); const pct = Math.round(100 * m.have / m.need); return `<div class="px25-m${m.claimed ? ' got' : ''}"><b>${esc(p.t(S().lv))}</b><div class="px25-pb"><i style="width:${pct}%"></i><span>${m.have}/${m.need}</span></div><small>${grantText(r)}${r.hp ? ' · ยา HP×' + r.hp : ''}${r.mp ? ' · ยา MP×' + r.mp : ''}</small>${m.claimed ? '<span>✅</span>' : `<button data-v25="mclaim" data-i="${i}" ${m.have >= m.need ? '' : 'disabled'}>รับ</button>`}</div>`; }).join('')}</div><div class="px25-m ${v.daily.bonus ? 'got' : ''}"><b>🎁 หีบโบนัสรายวัน</b><small>${grantText({ gems: 40, ore_prism: 1, ga: 3, gw: 2 })}</small>${v.daily.bonus ? '<span>✅</span>' : `<button class="goldbtn" data-v25="dbonus" ${all ? '' : 'disabled'}>เปิดหีบ</button>`}</div>`;
 }
 function tabBoss() {
   const w = wbWindow(), ts = WB_HOURS.map(h => pad(h) + ':00').join(' · '), v = V();
@@ -409,7 +452,7 @@ new MutationObserver(() => safe(gearShare)).observe(document.body, { childList: 
 document.addEventListener('click', e => {
   const tb = e.target.closest('[data-v25tab]'); if (tb) { openHub(tb.dataset.v25tab); return; }
   const b = e.target.closest('[data-v25]'); if (!b || b.disabled) return; const a = b.dataset.v25;
-  if (a === 'checkin') { doCheckin(); openHub('checkin'); } else if (a === 'mclaim') { claimMission(+b.dataset.i); openHub('daily'); } else if (a === 'dbonus') { claimDailyBonus(); openHub('daily'); }
+  if (a === 'checkin') { doCheckin(); openHub('checkin'); } else if (a === 'mclaim') { void claimMission(+b.dataset.i).then(()=>openHub('daily')); } else if (a === 'dbonus') { void claimDailyBonus().then(()=>openHub('daily')); }
   else if (a === 'wbjoin') { if (window.AMBER_V26) { closeHub(); window.AMBER_V26.openArena(false); } else wbJoin(); } else if (a === 'wbprac') { closeHub(); window.AMBER_V26 && window.AMBER_V26.openArena(true); } else if (a === 'wbclaim') { window.AMBER_V273?.claimLast?.(); } else if (a === 'rebirth') doRebirth();
   else if (a === 'title') { V().titles.active = b.dataset.id; commit(); decorateScene(); openHub('titles'); } else if (a === 'titleauto') { V().titles.active = 'auto'; commit(); openHub('titles'); }
   else if (a === 'sharechar') shareCard(null); else if (a === 'shareg') shareCard((S().gear || []).find(g => String(g.id) === b.dataset.id));
