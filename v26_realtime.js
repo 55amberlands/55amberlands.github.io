@@ -1,0 +1,329 @@
+/* 55 AMBERLANDS V26 — REALTIME CROWD / PARTY WORLD MAP / WORLD-BOSS ARENA
+ *  A  Same-map crowd: see up to 10 players (you + 9) standing in the map, each with the monster they fight above them
+ *  B  "ใครอยู่ไหน" world map: dots for up to 10 parties (+ solo dots) per place, tap a party dot -> request to join
+ *  C  18:00 World-Boss arena: boss on top, everybody at the bottom, up to 10 parties, shared HP via broadcast
+ *  Uses the existing Supabase realtime room (presence + broadcast). No new SQL. Offline = simulation mode.
+ */
+(() => {
+'use strict';
+const PX = window.PX; if (!PX) return;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"'`]/g, c => '&#' + c.charCodeAt(0) + ';');
+const fmt = n => Math.max(0, Math.floor(Number(n) || 0)).toLocaleString('th-TH');
+const safe = (fn, d) => { try { return fn(); } catch (e) { console.warn('[v26]', e && e.message); return d; } };
+const ST = () => (typeof state !== 'undefined' ? state : null);
+const jobName = j => ({ 'เวท': 'จอมเวท' }[j] || j || 'นักผจญภัย');
+const V25 = () => window.AMBER_V25 || {};
+const myId = () => safe(() => window.AMBER_CLOUD.getUser()?.id, null) || 'me';
+
+/* =============================================================== network */
+let R = null, Rp = null;
+function getR() { if (R) return Promise.resolve(R); if (!window.claude || !claude.use) return Promise.resolve(null); return Rp || (Rp = claude.use('room').then(r => (R = r), () => null)); }
+function onNet(evt, fn) { getR().then(r => r && r.on && r.on(evt, m => safe(() => fn(m)))); }
+function emit(evt, data) { getR().then(r => r && r.emit && r.emit(evt, data).catch(() => { })); }
+const isOnline = () => !!(window.AMBER_PUBLIC_PEERS && window.AMBER_PUBLIC_PEERS.length) && !FAKE.on;
+
+/* ---------- fake crowd (offline preview + tests) ---------- */
+const FAKE = { on: false, list: [], t: 0 };
+const FN = ['Aria', 'Kenji', 'Mochi', 'Zeno', 'Luna', 'Bank', 'Pim', 'Rex', 'Nana', 'Tao', 'Fah', 'Ken', 'Mint', 'Joe', 'Nok', 'Ice', 'Boss', 'Gift', 'Ploy', 'Max'];
+const FJ = ['ดาบ', 'ธนู', 'หมัด', 'จอมเวท'];
+function makeFake(n) {
+  const st = ST(), maps = (typeof MAPS !== 'undefined' ? MAPS : []), here = st ? st.map : 'school', out = [];
+  for (let i = 0; i < n; i++) {
+    const inHere = i < 12, map = inHere ? here : maps[(i * 3) % Math.max(1, maps.length)][0];
+    const party = i % 5 === 0 ? 'fk-A' : i % 5 === 1 ? 'fk-A' : i % 7 === 3 ? 'fk-B' : i % 7 === 4 ? 'fk-B' : '';
+    const mons = (typeof MONS !== 'undefined' ? MONS : []).filter(m => m.map === map && !m.boss);
+    out.push({ by: 'fake' + i, isMe: false, kind: 'viewer', presence: { n: FN[i % FN.length], lv: Math.max(1, (st ? st.lv : 10) + (i % 7) - 3), job: FJ[i % 4], gender: i % 2 ? 'female' : 'male', map, zone: ['A · ทางเข้า', 'B · กลางแผนที่', 'C · มอนสเตอร์หนาแน่น', 'D · ลานบอส'][(i * 5) % 4], pid: party, w: 'ดาบกล้า', wt: FJ[i % 4], wr: i % 4, we: (i * 3) % 11, wl: 10, atk: 60 + i * 25, mon: (mons[i % Math.max(1, mons.length)] || {}).name || '', mh: 40 + (i * 17) % 60, ttl: i === 2 ? 'set_fire' : i === 6 ? 'k1000' : '' } });
+  }
+  return out;
+}
+function setFake(on) {
+  FAKE.on = !!on; if (on) { FAKE.list = makeFake(24); FAKE.t = Date.now(); } renderCrowd(true);
+}
+setInterval(() => { if (!FAKE.on) return; FAKE.list.forEach((p, i) => { const x = p.presence; x.mh -= 6 + (i % 4) * 3; if (x.mh <= 0) { x.mh = 100; const ms = (typeof MONS !== 'undefined' ? MONS : []).filter(m => m.map === x.map && !m.boss); if (ms.length) x.mon = ms[Math.floor(Math.random() * ms.length)].name; } }); }, 1200);
+
+function norm(p) {
+  const x = p.presence || {}, lv = live[p.by] || {};
+  return { id: p.by, n: String(x.n || '?').slice(0, 16), lv: x.lv | 0, job: String(x.job || '').slice(0, 8), g: x.gender === 'female' ? 'female' : 'male', map: String(x.map || ''), zone: String(x.zone || ''), pid: x.pid ? String(x.pid).slice(0, 40) : '', w: { w: String(x.w || '').slice(0, 55), wt: String(x.wt || ''), wr: x.wr | 0, we: x.we | 0, wl: x.wl | 0 }, atk: x.atk | 0, ttl: String(x.ttl || ''), dg: !!x.dungeon, mon: lv.m || x.mon || '', mh: lv.h != null ? lv.h : (x.mh != null ? x.mh : 100), d: lv.d || 0, dt: lv.t || 0, emo: x.emo, emt: x.emt };
+}
+const peers = () => (FAKE.on ? FAKE.list : (window.AMBER_PUBLIC_PEERS || [])).filter(p => !p.isMe && p.by && p.presence).map(norm);
+const live = {};   // by -> {m,h,d,t}
+onNet('v26st', m => { const d = m.data; if (!d || m.isMe || !m.by) return; live[m.by] = { m: String(d.m || '').slice(0, 20), h: Math.max(0, Math.min(100, d.h | 0)), d: d.d | 0, t: Date.now() }; });
+
+/* own status hooks: presence gets mon / hp% (slow fallback) ; fast broadcast every 2.5 s */
+function myMob() { const m = safe(() => mob(), null); if (!m) return { m: '', h: 100 }; const cur = safe(() => currentHp, m.hp); return { m: m.name, h: Math.max(0, Math.min(100, Math.round(100 * cur / m.hp))) }; }
+safe(() => { const o = window.AMBER_V12 && window.AMBER_V12.presenceInfo; if (o) window.AMBER_V12.presenceInfo = function () { const b = o.apply(this, arguments) || {}, mm = myMob(); return { ...b, mon: mm.m, mh: mm.h }; }; });
+setInterval(() => {
+  const st = ST(); if (!st || FAKE.on || document.hidden) return;
+  if (!peers().some(p => p.map === st.map)) return;
+  const mm = myMob(), c = safe(() => window.AMBER_V12.combat(), { atk: 30 });
+  emit('v26st', { m: mm.m, h: mm.h, d: Math.round(c.atk * (0.85 + Math.random() * .3)) });
+}, 2500);
+
+/* =============================================================== A. crowd overlay */
+let crowd = null, cSig = '', cEls = {};
+function ensureCrowd() {
+  const sc = $('scene'); if (!sc) return null;
+  if (!crowd || crowd.parentNode !== sc) { crowd = document.createElement('div'); crowd.id = 'px26Crowd'; sc.appendChild(crowd); cSig = ''; cEls = {}; }
+  return crowd;
+}
+const heroURL = p => safe(() => PX.hero.reg(jobName(p.job), p.g, p.w && p.w.w ? PX.weaponSpec({ w: p.w.w, wt: p.w.wt, wr: p.w.wr, we: p.w.we, wl: p.w.wl }) : null), '');
+const monURL = n => (n && PX.creatures.TABLE[n]) ? safe(() => PX.creatures.reg(n), '') : '';
+function crowdList() {
+  const st = ST(); if (!st) return [];
+  const sc = $('scene'); if (sc && sc.classList.contains('amber24-dungeon-scene')) return [];
+  let mp = null; safe(() => { mp = typeof myPid !== 'undefined' ? myPid : null; });
+  const ps = peers().filter(p => p.map === st.map && !p.dg), pid = window.AMBER_MY_PID || '';
+  const partyShown = ps.filter(p => pid && p.pid === pid).length;
+  const others = ps.filter(p => !(pid && p.pid === pid)).sort((a, b) => Math.abs(a.lv - st.lv) - Math.abs(b.lv - st.lv));
+  return others.slice(0, Math.max(0, 9 - partyShown));
+}
+function renderCrowd(force) {
+  const st = ST(); if (!st) return; const host = ensureCrowd(); if (!host) return;
+  const list = crowdList(), sig = list.map(p => p.id + p.lv + p.job + p.n + p.w.w + p.w.we + p.ttl + p.pid).join('|');
+  if (force || sig !== cSig) {
+    cSig = sig; host.innerHTML = ''; cEls = {};
+    host.classList.toggle('many', list.length > 4);
+    list.forEach(p => {
+      const c = document.createElement('div'); c.className = 'px26-c'; c.dataset.id = p.id;
+      const ak = V25().auraKind ? V25().auraKind(p.ttl) : '';
+      c.innerHTML = `<div class="px26-m"><img class="px26-mi" alt=""><i><u></u></i><b class="px26-dmg"></b></div><div class="px26-hw">${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h" src="${heroURL(p)}" alt="${esc(p.n)}"></div><small>${p.pid ? '👥' : ''}${esc(p.n)}</small>${p.ttl && V25().TITLES && V25().TITLES[p.ttl] ? `<div class="px26-t">${V25().titleHTML(p.ttl, true)}</div>` : ''}`;
+      host.appendChild(c); cEls[p.id] = c;
+    });
+  }
+  const now = Date.now();
+  list.forEach(p => {
+    const c = cEls[p.id]; if (!c) return; const mi = c.querySelector('.px26-mi'), m = c.querySelector('.px26-m'), u = c.querySelector('i u'), dm = c.querySelector('.px26-dmg');
+    const url = monURL(p.mon); if (url) { if (mi.dataset.m !== p.mon) { mi.dataset.m = p.mon; mi.src = url; } m.style.visibility = 'visible'; } else m.style.visibility = 'hidden';
+    u.style.width = Math.max(0, Math.min(100, p.mh)) + '%';
+    if (p.dt && p.dt !== c._dt && now - p.dt < 4000) { c._dt = p.dt; dm.textContent = '-' + fmt(p.d); dm.classList.remove('pop'); void dm.offsetWidth; dm.classList.add('pop'); }
+    if (p.emo && p.emt && now - p.emt < 3500) { if (c._em !== p.emt) { c._em = p.emt; c.querySelectorAll('.px26-em').forEach(e => e.remove()); const im = new Image(); im.className = 'px26-em'; im.src = PX.ui.emoteURL(p.emo); c.appendChild(im); setTimeout(() => im.remove(), 3500); } }
+  });
+}
+setInterval(() => safe(() => renderCrowd(false)), 700);
+document.addEventListener('click', e => { const c = e.target.closest('.px26-c'); if (c && c.dataset.id) showPeerCard(c.dataset.id); });
+function showPeerCard(id) {
+  const p = peers().find(x => x.id === id); if (!p) return; $('px26Peer')?.remove();
+  const d = document.createElement('div'); d.id = 'px26Peer'; d.className = 'px26-pop';
+  const mine = window.AMBER_MY_PID || '';
+  d.innerHTML = `<b>${esc(p.n)}</b> <small>Lv.${p.lv} ${esc(p.job)}</small><br>${p.ttl && V25().TITLES && V25().TITLES[p.ttl] ? V25().titleHTML(p.ttl, true) + '<br>' : ''}<small>${esc(p.zone)}${p.pid ? ' · 👥 อยู่ในปาร์ตี้' : ''}</small><div class="row">${!FAKE.on ? `<button data-px26="inv" data-id="${esc(p.id)}">📨 ชวนเข้าปาร์ตี้</button>` : ''}${p.pid && p.pid !== mine && !FAKE.on ? `<button data-px26="join" data-pid="${esc(p.pid)}">🙋 ขอเข้าปาร์ตี้นี้</button>` : ''}<button data-px26="x">ปิด</button></div>`;
+  document.body.appendChild(d);
+}
+
+/* =============================================================== B. party world map */
+const ZONES = [['A', 'ทางเข้า'], ['B', 'กลางแผนที่'], ['C', 'มอนหนาแน่น'], ['D', 'ลานบอส']];
+const pcol = s => { const h = PX.hash(s || 'x') % 360; return `hsl(${h} 80% 62%)`; };
+const zoneIdx = z => Math.max(0, ZONES.findIndex(q => String(z).startsWith(q[0])));
+let mapSel = null, pending = null;
+function worldData() {
+  const st = ST(), maps = typeof MAPS !== 'undefined' ? MAPS : [], res = {}, pid = window.AMBER_MY_PID || '';
+  maps.forEach(m => res[m[0]] = { m, parties: {}, solos: [], n: 0 });
+  const all = peers().filter(p => !p.dg);
+  all.push({ id: 'me', n: st.name + ' (คุณ)', lv: st.lv, job: st.job, map: st.map, zone: (($('spot') || {}).value) || 'A · ทางเข้า', pid, me: true });
+  all.forEach(p => { const r = res[p.map]; if (!r) return; r.n++; if (p.pid) (r.parties[p.pid] = r.parties[p.pid] || []).push(p); else r.solos.push(p); });
+  // cap parties to 10 in total (biggest first)
+  const plist = []; Object.values(res).forEach(r => Object.entries(r.parties).forEach(([k, v]) => plist.push({ r, k, n: v.length })));
+  plist.sort((a, b) => b.n - a.n); const keep = new Set(plist.slice(0, 10).map(x => x.k)), hidden = plist.length - keep.size;
+  Object.values(res).forEach(r => { Object.keys(r.parties).forEach(k => { if (!keep.has(k)) { r.solos.push(...r.parties[k]); delete r.parties[k]; } }); });
+  return { res, hidden, total: all.length, parties: Math.min(10, plist.length) };
+}
+function mapHTML() {
+  const d = worldData(), st = ST();
+  let h = `<p class="px26-hint">${FAKE.on ? '🧪 <b>โหมดจำลอง</b> (ข้อมูลตัวอย่าง) · ' : ''}ออนไลน์ทั้งเกม <b>${d.total}</b> คน · จุดสี = ปาร์ตี้ (ตัวเลข = จำนวนคน, แสดงสูงสุด 10 ปาร์ตี้) · จุดเทา = ผู้เล่นเดี่ยว${d.hidden > 0 ? ` · ซ่อนอีก ${d.hidden} ปาร์ตี้` : ''}</p>`;
+  h += Object.values(d.res).map(r => {
+    const [id, name, lo, hi] = r.m, here = id === st.map, locked = st.lv < lo - 0;
+    const slots = ZONES.map((z, zi) => {
+      const dots = Object.entries(r.parties).filter(([k, v]) => zoneIdx(v[0].zone) === zi).map(([k, v]) => `<button class="px26-dot party" style="--c:${pcol(k)}" data-px26="pd" data-k="${esc(k)}" data-map="${esc(id)}" title="ปาร์ตี้ ${v.length} คน">${v.length}</button>`).join('')
+        + r.solos.filter(p => zoneIdx(p.zone) === zi).slice(0, 8).map(p => `<span class="px26-dot solo${p.me ? ' me' : ''}" title="${esc(p.n)}"></span>`).join('');
+      return `<div class="px26-slot"><em>${z[1]}</em><div>${dots}</div></div>`;
+    }).join('');
+    return `<div class="px26-mapcard${here ? ' here' : ''}"><div class="hd"><b>${esc(name)}</b><small>Lv.${lo}-${hi}${here ? ' · 📍 คุณอยู่ที่นี่' : ''}</small><span>👥 ${r.n}</span></div><div class="px26-zones">${slots}</div></div>`;
+  }).join('');
+  h += `<div id="px26Det" class="px26-det">${detHTML()}</div><div class="px26-form"><button data-px26="sim">${FAKE.on ? '⏹️ ปิดโหมดจำลอง' : '🧪 จำลองผู้เล่น 24 คน (ดูตัวอย่าง)'}</button></div>`;
+  return h;
+}
+function detHTML() {
+  if (!mapSel) return '<small>แตะจุดสีเพื่อดูสมาชิกปาร์ตี้ และขอเข้าร่วม</small>';
+  const d = worldData(), r = d.res[mapSel.map], mem = r && r.parties[mapSel.k]; if (!mem) return '<small>ปาร์ตี้นี้ไม่อยู่แล้ว</small>';
+  const st = ST(), mine = window.AMBER_MY_PID || '', zone = mem[0].zone, lo = r.m[2];
+  const canGo = st.map !== mapSel.map && st.lv >= lo;
+  return `<b style="color:${pcol(mapSel.k)}">● ปาร์ตี้ ${mem.length}/7</b> · ${esc(r.m[1])} · ${esc(zone)}<div class="px26-mem">${mem.map(p => `<span>${esc(p.n)} <small>Lv.${p.lv} ${esc(p.job)}</small></span>`).join('')}</div><div class="row">${mem.some(p => p.me) ? '<small>นี่คือปาร์ตี้ของคุณ</small>' : (mine ? '<small>ออกจากปาร์ตี้ปัจจุบันก่อนจึงจะขอเข้าอื่นได้</small>' : mem.length >= 7 ? '<small>ปาร์ตี้เต็ม</small>' : `<button class="goldbtn" data-px26="join" data-pid="${esc(mapSel.k)}">🙋 ขอเข้าปาร์ตี้</button>`)}${canGo ? `<button data-px26="go" data-map="${esc(mapSel.map)}">🚶 ไปแมปนี้</button>` : (st.map !== mapSel.map ? `<small>ต้อง Lv.${lo}+</small>` : '')}</div>`;
+}
+function openWorld() {
+  safe(() => openModal('🗺️ ใครอยู่ที่ไหน (ปาร์ตี้ออนไลน์)', '<div id="px26Map"></div>'));
+  paintWorld();
+}
+function paintWorld() { const b = $('px26Map'); if (b) b.innerHTML = mapHTML(); }
+setInterval(() => { const b = $('px26Map'); if (b && b.isConnected) { const y = b.parentNode.scrollTop; paintWorld(); b.parentNode.scrollTop = y; } }, 4000);
+
+/* join request: requester -> party; any member accepts -> existing 'pinv' invite flow */
+onNet('v26jr', m => {
+  const d = m.data, mine = window.AMBER_MY_PID || ''; if (!d || m.isMe || !mine || d.pid !== mine || pending) return;
+  pending = { from: m.by, n: String(d.n || 'ผู้เล่น').slice(0, 16), lv: d.lv | 0, job: String(d.job || '').slice(0, 8) };
+  const c = document.createElement('div'); c.className = 'raidalert'; c.id = 'px26Req';
+  c.innerHTML = `<div class="raidcard"><h2>🙋 ขอเข้าปาร์ตี้</h2><p><b>${esc(pending.n)}</b> Lv.${pending.lv} ${esc(pending.job)} ขอเข้าร่วมปาร์ตี้ของคุณ</p><button class="goldbtn" data-px26="reqok">✅ รับเข้า</button><button data-px26="reqno">ปฏิเสธ</button></div>`;
+  document.body.appendChild(c); pending.t = setTimeout(() => { pending = null; c.remove(); }, 30000);
+});
+
+/* =============================================================== C. world boss arena */
+const ARENA = { on: false, practice: false, ev: '', boss: null, me: null, roster: {}, bots: [], t0: 0, done: false, tick: 0, hb: 0, timers: [] };
+const eventKey = () => { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate() + 'T18'; };
+function pickBoss() {
+  const bs = (typeof MONS !== 'undefined' ? MONS : []).filter(m => m.boss && PX.creatures.TABLE[m.name]); if (!bs.length) return null;
+  const day = Math.floor(Date.now() / 86400000); return bs[day % bs.length];
+}
+function myRow() {
+  const st = ST(), c = safe(() => window.AMBER_V12.combat(), { atk: 40, crit: .1 }), wi = safe(() => window.AMBER_V12.weaponInfo(), null) || {};
+  return { id: myId(), n: st.name, lv: st.lv, job: st.job, g: st.gender || 'male', pid: window.AMBER_MY_PID || myId(), atk: c.atk, crit: c.crit || .1, w: { w: wi.name || '', wt: wi.cls || '', wr: wi.rar | 0, we: wi.enh | 0, wl: wi.lv | 0 }, d: ARENA.me ? ARENA.me.d : 0, j: ARENA.me ? ARENA.me.j : Date.now(), ttl: safe(() => V25().activeTitleId(), ''), seen: Date.now(), me: true };
+}
+onNet('v26wb', m => {
+  const d = m.data; if (!d || m.isMe || !m.by || !ARENA.on || d.ev !== ARENA.ev) return;
+  const r = ARENA.roster[m.by], nd = d.d | 0;
+  ARENA.roster[m.by] = { id: m.by, n: String(d.n || '?').slice(0, 16), lv: d.lv | 0, job: String(d.job || ''), g: d.g === 'female' ? 'female' : 'male', pid: String(d.pid || m.by).slice(0, 40), atk: Math.max(1, d.atk | 0), w: d.w || {}, d: nd, j: d.j | 0, ttl: String(d.ttl || ''), seen: Date.now(), prev: r ? r.d : nd, popAt: 0 };
+});
+function bossMax() { const all = allPlayers(); return Math.max(20000, all.reduce((s, p) => s + Math.max(30, p.atk), 0) * 240); }
+function admitted() {
+  const all = Object.values(ARENA.roster).concat(ARENA.me ? [ARENA.me] : []).concat(ARENA.bots).filter(p => Date.now() - p.seen < 14000 || p.bot);
+  const first = {}; all.forEach(p => { first[p.pid] = Math.min(first[p.pid] || 1e15, p.j || 0); });
+  const keys = Object.keys(first).sort((a, b) => first[a] - first[b] || (a < b ? -1 : 1)).slice(0, 10);
+  return { keys, all: all.filter(p => keys.includes(p.pid)), full: Object.keys(first).length > 10 };
+}
+const allPlayers = () => admitted().all;
+const total = () => allPlayers().reduce((s, p) => s + (p.d | 0), 0);
+function startBots() {
+  ARENA.bots = []; const st = ST(), now = Date.now(); const groups = [['sim-A', 6], ['sim-B', 4], ['sim-C', 3], ['sim-D', 1]];
+  let i = 0; groups.forEach(([k, n], gi) => { for (let a = 0; a < n; a++, i++) ARENA.bots.push({ id: 'bot' + i, bot: true, n: FN[i % FN.length], lv: Math.max(20, st.lv + (i % 5) - 2), job: FJ[i % 4], g: i % 2 ? 'female' : 'male', pid: k, atk: Math.max(80, (safe(() => window.AMBER_V12.combat().atk, 100)) * (0.7 + (i % 5) * .15)), crit: .12, w: { w: 'ดาบกล้า', wt: FJ[i % 4], wr: i % 4, we: (i * 2) % 11, wl: 30 }, d: 0, j: now + gi * 10, ttl: i === 1 ? 'set_prism' : i === 5 ? 'set_fire' : '', seen: now, prev: 0 }); });
+}
+function hit(p) { const crit = Math.random() < (p.crit || .1); const base = p.atk * (0.8 + Math.random() * .4); return Math.round(base * (crit ? 1.9 : 1)); }
+function openArena(practice) {
+  const w = safe(() => V25().wbWindow(), { open: false });
+  if (!practice && !w.open) { practice = true; }
+  safe(() => closeModal());
+  if (ARENA.on) return;
+  Object.assign(ARENA, { on: true, practice: !!practice, ev: practice ? 'prac' + Date.now() : eventKey(), boss: pickBoss(), roster: {}, bots: [], t0: Date.now(), done: false, tick: 0, hb: 0 });
+  if (!ARENA.boss) { ARENA.on = false; safe(() => notify('ยังไม่มีบอสให้จัดกิจกรรม')); return; }
+  ARENA.me = myRow(); ARENA.me.d = 0; ARENA.me.j = Date.now();
+  if (practice || !isOnline() || FAKE.on) startBots();
+  buildArena();
+  ARENA.timers.push(setInterval(arenaTick, 1000));
+}
+function closeArena() { ARENA.timers.forEach(clearInterval); ARENA.timers = []; ARENA.on = false; $('px26Arena')?.remove(); }
+function buildArena() {
+  $('px26Arena')?.remove(); const b = ARENA.boss;
+  const a = document.createElement('div'); a.id = 'px26Arena';
+  a.innerHTML = `<canvas id="px26Bg"></canvas><div class="px26-top"><div><b>👑 ${ARENA.practice ? 'ซ้อมบอสโลก (ไม่มีรางวัลจริง)' : 'บอสโลกกิจกรรม 18:00'}</b> <small id="px26Time"></small></div><button data-px26="arx">✖ ออก</button></div>
+  <div class="px26-boss"><div class="px26-bn">${esc(b.name)} <small>Lv.${b.lv}</small></div><div class="px26-bbar"><i id="px26Hp"></i><span id="px26HpT"></span></div><div class="px26-bimg"><img id="px26Boss" src="${PX.creatures.reg(b.name)}" alt=""><div id="px26Fx"></div></div></div>
+  <div class="px26-field" id="px26Field"></div><div class="px26-foot" id="px26Foot"></div>`;
+  document.body.appendChild(a);
+  safe(() => { const mi = typeof MAPS !== 'undefined' ? MAPS.findIndex(m => m[0] === b.map) : 0, key = PX.scenes.KEYS[Math.max(0, mi) % PX.scenes.KEYS.length], cv = $('px26Bg'), W = Math.ceil(innerWidth / 4), H = Math.ceil(innerHeight / 4); cv.width = W; cv.height = H; ARENA.scn = PX.scenes.create(key, W, H); ARENA.cv = cv.getContext('2d'); ARENA.W = W; ARENA.H = H; });
+  paintArena(true);
+}
+let lastField = '';
+function paintArena(force) {
+  if (!ARENA.on) return; const adm = admitted(), all = adm.all, max = bossMax(), tot = total(), left = Math.max(0, max - tot), pct = Math.max(0, 100 * left / max);
+  $('px26Hp').style.width = pct + '%'; $('px26HpT').textContent = fmt(left) + ' / ' + fmt(max) + ' (' + pct.toFixed(1) + '%)';
+  const w = safe(() => V25().wbWindow(), { open: false, end: 0 }), tl = ARENA.practice ? '' : (w.open ? '⏳ เหลือ ' + Math.max(0, Math.floor((w.end - Date.now()) / 60000)) + ' นาที' : '');
+  $('px26Time').textContent = tl + ' · 👥 ' + all.length + ' คน · ' + adm.keys.length + '/10 ปาร์ตี้';
+  const mineIn = adm.keys.includes(ARENA.me.pid), sig = all.map(p => p.id + p.pid + p.lv + p.ttl + p.w.we).join('|') + adm.keys.join(',');
+  if (force || sig !== lastField) {
+    lastField = sig; const n = all.length, size = n <= 14 ? 58 : n <= 30 ? 46 : 38;
+    const groups = adm.keys.map(k => ({ k, ps: all.filter(p => p.pid === k) }));
+    $('px26Field').style.setProperty('--sz', size + 'px');
+    $('px26Field').innerHTML = groups.map((g, gi) => `<div class="px26-grp" style="--c:${pcol(g.k)}"><b>${g.ps.some(p => p.me) ? '⭐ ปาร์ตี้ของคุณ' : 'ปาร์ตี้ ' + (gi + 1)} <small>${g.ps.length} คน</small></b><div class="rw">${g.ps.map(p => { const ak = V25().auraKind ? V25().auraKind(p.ttl) : ''; return `<div class="px26-ap${p.me ? ' me' : ''}" data-pid="${esc(p.id)}">${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h atk" src="${heroURL({ job: p.job, g: p.g, w: p.w })}" alt=""><small>${esc(p.n)}</small><em class="dm" data-dm="${esc(p.id)}"></em></div>`; }).join('')}</div></div>`).join('') + (adm.full ? '<p class="px26-warn">🚫 มีผู้เข้าร่วมครบ 10 ปาร์ตี้แล้ว — ปาร์ตี้ใหม่รอรอบหน้า</p>' : '');
+  }
+  const rank = all.slice().sort((a, b) => b.d - a.d).slice(0, 5);
+  $('px26Foot').innerHTML = (mineIn ? `<span>⚔️ ดาเมจคุณ <b>${fmt(ARENA.me.d)}</b></span>` : '<span class="px26-warn">🚫 ปาร์ตี้ของคุณเกิน 10 ปาร์ตี้ — โหมดผู้ชม</span>') + `<span class="rk">🏆 ${rank.map((p, i) => `${i + 1}.${esc(p.n)} ${fmt(p.d)}`).join(' · ')}</span>`;
+}
+function popDmg(id, val, crit) {
+  const el = document.querySelector(`[data-dm="${CSS.escape(id)}"]`); if (el) { el.textContent = '-' + fmt(val); el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
+  const fx = $('px26Fx'); if (fx) { const s = document.createElement('span'); s.className = 'px26-bd' + (crit ? ' crit' : ''); s.textContent = fmt(val); s.style.left = (15 + Math.random() * 70) + '%'; fx.appendChild(s); setTimeout(() => s.remove(), 900); }
+  const bi = $('px26Boss'); if (bi) { bi.classList.add('hit'); setTimeout(() => bi.classList.remove('hit'), 90); }
+}
+function arenaTick() {
+  if (!ARENA.on || ARENA.done) return; ARENA.tick++;
+  const adm = admitted(), mineIn = adm.keys.includes(ARENA.me.pid);
+  const me = Object.assign(ARENA.me, myRow()); me.d = ARENA.me.d;
+  if (mineIn) { let dmg = hit(me); if (ARENA.tick % 5 === 0) dmg *= 3; me.d += dmg; popDmg(me.id, dmg, ARENA.tick % 5 === 0); }
+  ARENA.bots.forEach(b => { b.seen = Date.now(); if (Math.random() < .8) { const dmg = hit(b); b.d += dmg; if (Math.random() < .5) popDmg(b.id, dmg); } });
+  Object.values(ARENA.roster).forEach(p => { if (p.d > p.prev && Date.now() - p.popAt > 700) { p.popAt = Date.now(); popDmg(p.id, Math.round((p.d - p.prev) / 2.5), false); p.prev = p.d; } });
+  const gap = Math.max(2000, adm.all.length * 80);
+  if (!ARENA.practice && !FAKE.on && mineIn && Date.now() - ARENA.hb > gap) { ARENA.hb = Date.now(); emit('v26wb', { ev: ARENA.ev, n: me.n, lv: me.lv, job: me.job, g: me.g, pid: me.pid, atk: me.atk, w: me.w, d: me.d, j: me.j, ttl: me.ttl }); }
+  if (ARENA.cv) { const sp = ARENA.scn.render(performance.now()); ARENA.cv.putImageData(new ImageData(new Uint8ClampedArray(sp.d.buffer.slice(0)), ARENA.W, ARENA.H), 0, 0); }
+  paintArena(false);
+  const w = safe(() => V25().wbWindow(), { open: true });
+  if (total() >= bossMax()) finishArena(true); else if (!ARENA.practice && !w.open) finishArena(false);
+}
+function finishArena(win) {
+  if (ARENA.done) return; ARENA.done = true; const all = allPlayers().slice().sort((a, b) => b.d - a.d), myRank = all.findIndex(p => p.me) + 1, v = safe(() => V25().V(), null);
+  let rewardTxt = '';
+  if (!ARENA.practice && v && v.wb.claimed !== ARENA.ev && myRank > 0) {
+    v.wb.claimed = ARENA.ev; v.wb.total = (v.wb.total | 0) + (win ? 1 : 0); v.wb.dmg = (v.wb.dmg | 0) + ARENA.me.d;
+    const lvl = ST().lv;
+    // V26.1: World Boss victory coil rewards are six-figure amounts.
+    // Keep Gold, ores and all other bonus items (plus defeat rewards) unchanged.
+    const bossCoils = myRank === 1 ? 300000 : myRank === 2 ? 250000 : myRank === 3 ? 200000 : 100000;
+    const r = win ? { gold: 20000 + lvl * 150, gems: bossCoils, ore_prism: myRank <= 3 ? 2 : 1, ga: 1, gw: 1 } : { gold: 3000 + lvl * 40, gems: 10 };
+    rewardTxt = safe(() => V25().grant(r), ''); safe(() => { V25().commit(); V25().refresh(); });
+  }
+  const res = document.createElement('div'); res.className = 'px26-res';
+  res.innerHTML = `<div class="box"><h2>${win ? '🏆 ปราบบอสสำเร็จ!' : '⌛ บอสหนีไปแล้ว'}</h2><p>${esc(ARENA.boss.name)} · ผู้ร่วมรบ ${all.length} คน</p><ol>${all.slice(0, 10).map(p => `<li${p.me ? ' class="me"' : ''}>${esc(p.n)} <b>${fmt(p.d)}</b></li>`).join('')}</ol><p>${ARENA.practice ? '<small>โหมดซ้อม: ไม่มีรางวัล</small>' : (rewardTxt ? '🎁 ' + esc(rewardTxt) : (myRank ? '<small>รับรางวัลของกิจกรรมนี้ไปแล้ว</small>' : ''))}</p><button class="goldbtn" data-px26="arx">ปิด</button></div>`;
+  $('px26Arena')?.appendChild(res);
+}
+
+/* =============================================================== delegated actions + UI */
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-px26]'); if (!b) return; const a = b.dataset.px26;
+  if (a === 'x') $('px26Peer')?.remove();
+  else if (a === 'inv') { safe(() => AMBO.inv(b.dataset.id)); $('px26Peer')?.remove(); }
+  else if (a === 'join') { if (!window.AMBER_MY_PID) { const st = ST(); emit('v26jr', { pid: b.dataset.pid, n: st.name, lv: st.lv, job: st.job }); safe(() => notify('ส่งคำขอเข้าปาร์ตี้แล้ว รอสมาชิกตอบรับ')); } $('px26Peer')?.remove(); }
+  else if (a === 'pd') { mapSel = { k: b.dataset.k, map: b.dataset.map }; const d = $('px26Det'); if (d) d.innerHTML = detHTML(); }
+  else if (a === 'go') { safe(() => chooseMap(b.dataset.map)); safe(() => closeModal()); }
+  else if (a === 'sim') { setFake(!FAKE.on); paintWorld(); }
+  else if (a === 'reqok') { if (pending) { clearTimeout(pending.t); emit('pinv', { to: pending.from, pid: window.AMBER_MY_PID }); safe(() => notify('ส่งคำเชิญตอบรับแล้ว')); pending = null; } $('px26Req')?.remove(); }
+  else if (a === 'reqno') { if (pending) clearTimeout(pending.t); pending = null; $('px26Req')?.remove(); }
+  else if (a === 'arx') closeArena();
+  else if (a === 'world') openWorld();
+});
+
+const css = document.createElement('style'); css.textContent = `
+#px26Crowd{position:absolute;left:4px;right:4px;top:62px;bottom:158px;display:flex;flex-wrap:wrap;align-content:flex-end;justify-content:center;gap:0 4px;z-index:2;pointer-events:none}
+.px26-c{position:relative;width:64px;text-align:center;pointer-events:auto;cursor:pointer;filter:drop-shadow(0 3px 2px #000a)}.many .px26-c{width:52px}
+.px26-m{position:relative;height:42px;display:flex;justify-content:center;align-items:flex-end}.px26-mi{max-height:38px;max-width:46px;object-fit:contain;image-rendering:pixelated;background:none!important;border-radius:0!important}
+.px26-m i{position:absolute;left:8px;right:8px;bottom:-3px;height:4px;background:#2a0a14;border:1px solid #000;border-radius:2px;overflow:hidden}.px26-m i u{display:block;height:100%;background:linear-gradient(90deg,#d83a3a,#ff9a5a)}
+.px26-dmg{position:absolute;left:50%;top:0;transform:translateX(-50%);font:800 12px system-ui;color:#fff;text-shadow:0 0 3px #000,1px 1px 0 #c00;opacity:0}.px26-dmg.pop{animation:px26up 1.2s ease-out}
+@keyframes px26up{0%{opacity:1;transform:translate(-50%,10px)}100%{opacity:0;transform:translate(-50%,-22px)}}
+.px26-hw{position:relative;height:50px;display:flex;justify-content:center;align-items:flex-end}.px26-h{max-height:50px;max-width:50px;width:auto!important;height:auto!important;image-rendering:pixelated;background:none!important;border-radius:0!important;position:relative;z-index:1}
+.px26-aura{position:absolute;bottom:-4px;left:50%;width:120%;max-width:none!important;transform:translateX(-50%);mix-blend-mode:screen;image-rendering:pixelated;pointer-events:none;background:none!important;border-radius:0!important}
+.px26-c small{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;text-shadow:0 1px 2px #000;background:#0008;border-radius:4px;padding:0 2px}.px26-t{position:absolute;left:50%;transform:translateX(-50%);top:30px;white-space:nowrap}.px26-t .px25-title{font-size:8px;padding:0 6px}
+.px26-em{position:absolute;left:50%;top:34px;width:34px;transform:translateX(-50%);image-rendering:pixelated;z-index:5;background:none!important;border-radius:0!important}
+.px26-pop{position:fixed;left:50%;top:40%;transform:translateX(-50%);z-index:99995;background:#1a0e33;border:2px solid #ffd24a;border-radius:12px;padding:10px 14px;text-align:center;box-shadow:0 0 18px #000}.px26-pop .row,.px26-det .row{display:flex;gap:6px;justify-content:center;margin-top:7px;flex-wrap:wrap}
+.px26-hint{color:#d9c8f8;font-size:12.5px;margin:4px 0 8px}.px26-mapcard{background:#150a28;border:1px solid #4a2c86;border-radius:10px;margin:6px 0;padding:6px 8px}.px26-mapcard.here{border-color:#ffd24a}.px26-mapcard .hd{display:flex;gap:8px;align-items:baseline}.px26-mapcard .hd b{flex:1}.px26-mapcard small{color:#bba6e6}
+.px26-zones{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:5px}.px26-slot{background:#0d0820;border-radius:7px;min-height:46px;padding:2px 4px}.px26-slot em{font:10px system-ui;color:#8a7aa8;display:block;font-style:normal}.px26-slot div{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px}
+.px26-dot{display:inline-block;border-radius:50%}.px26-dot.party{width:26px!important;height:26px!important;min-width:0!important;border-radius:50%!important;padding:0!important;line-height:22px;text-align:center;background:var(--c);color:#1a0e33;font-weight:800;font-size:12px;border:2px solid #fff;padding:0;box-shadow:0 0 8px var(--c);animation:px26pulse 1.6s infinite}.px26-dot.solo{width:9px;height:9px;background:#aab;margin:7px 1px}.px26-dot.solo.me{background:#ffd24a;box-shadow:0 0 6px #ffd24a}@keyframes px26pulse{50%{transform:scale(1.15)}}
+.px26-det{background:#1a0e33;border:1px dashed #ffd24a;border-radius:10px;padding:8px;margin-top:8px;position:sticky;bottom:0}.px26-mem span{display:inline-block;background:#2a1850;border-radius:99px;padding:1px 9px;margin:2px;font-size:12px}.px26-form{margin-top:8px}
+#px26Arena{position:fixed;inset:0;z-index:99980;background:#05020c;display:flex;flex-direction:column;overflow:hidden;color:#fff}#px26Bg{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;opacity:.75;z-index:0}#px26Arena>*:not(#px26Bg){position:relative;z-index:1}
+.px26-top{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:linear-gradient(#000c,#0000)}
+.px26-boss{text-align:center;padding:0 12px}.px26-bn{font-weight:800;font-size:18px;text-shadow:0 2px 4px #000}.px26-bbar{position:relative;max-width:560px;height:20px;margin:4px auto;background:#2a0a14;border:2px solid #ffd24a;border-radius:10px;overflow:hidden}.px26-bbar i{position:absolute;left:0;top:0;bottom:0;width:100%;background:linear-gradient(90deg,#c01818,#ff6a2a,#ffd24a);transition:width .9s}.px26-bbar span{position:relative;font:700 11px system-ui;line-height:16px;text-shadow:0 1px 2px #000}
+.px26-bimg{position:relative;height:min(34vh,260px);display:flex;justify-content:center;align-items:flex-end}.px26-bimg img{height:100%;max-width:90%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 10px 8px #000c);background:none!important;border-radius:0!important}.px26-bimg img.hit{filter:brightness(2.2) saturate(.5) drop-shadow(0 10px 8px #000c)}
+#px26Fx{position:absolute;inset:0;pointer-events:none}.px26-bd{position:absolute;bottom:30%;font:800 20px system-ui;color:#ffe9a8;text-shadow:0 0 4px #000,2px 2px 0 #b00;animation:px26bd .9s ease-out forwards}.px26-bd.crit{font-size:30px;color:#ff7a2a}@keyframes px26bd{to{transform:translateY(-90px);opacity:0}}
+.px26-field{flex:1;overflow:auto;display:flex;flex-wrap:wrap;align-content:flex-end;justify-content:center;gap:8px;padding:6px 8px 4px}.px26-grp{border:1px solid color-mix(in srgb,var(--c) 70%,transparent);background:#0008;border-radius:10px;padding:2px 6px 4px}.px26-grp>b{display:block;font-size:11px;color:var(--c)}.px26-grp .rw{display:flex;gap:2px;flex-wrap:wrap;justify-content:center;max-width:calc(var(--sz)*4.2)}
+.px26-ap{position:relative;width:var(--sz);text-align:center}.px26-ap .px26-h{max-height:var(--sz);max-width:var(--sz);display:block;margin:0 auto}.px26-ap small{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px #000}.px26-ap.me small{color:#ffd24a;font-weight:700}.px26-ap .dm{position:absolute;left:50%;top:-6px;transform:translateX(-50%);font:800 11px system-ui;font-style:normal;color:#fff;text-shadow:0 0 3px #000,1px 1px 0 #c00;opacity:0}.px26-ap .dm.pop{animation:px26up 1s ease-out}.px26-ap .px26-aura{width:150%}
+.px26-ap .px26-h.atk{animation:px26atk .6s steps(2) infinite}@keyframes px26atk{50%{transform:translateY(-4px)}}
+.px26-foot{display:flex;justify-content:space-between;gap:8px;padding:6px 12px;background:#000b;font-size:12px;flex-wrap:wrap}.px26-warn{color:#ff9a9a;font-size:12px}
+.px26-res{position:absolute!important;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;z-index:5}.px26-res .box{background:#1a0e33;border:2px solid #ffd24a;border-radius:14px;padding:16px;max-width:380px;width:92%;text-align:center;box-shadow:0 0 28px #ff9aff66}.px26-res ol{text-align:left;padding-left:22px;font-size:13px}.px26-res li.me{color:#ffd24a;font-weight:700}.px26-res li b{float:right}
+#px26Hub{position:relative}
+`;
+document.head.appendChild(css);
+function mount() {
+  const nav = document.querySelector('.nav'); if (nav && !$('px26Btn')) { const b = document.createElement('button'); b.id = 'px26Btn'; b.type = 'button'; b.dataset.px26 = 'world'; b.innerHTML = '🗺️<span>ใครอยู่ไหน</span>'; nav.appendChild(b); }
+}
+function start() {
+  if (!ST()) return setTimeout(start, 300);
+  safe(() => { const o = window.AMBER_V12 && window.AMBER_V12.presenceInfo; });
+  mount(); setInterval(mount, 3000);
+  // keep own party id readable for this module
+  setInterval(() => safe(() => { window.AMBER_MY_PID = (typeof myPid !== 'undefined') ? myPid : (window.AMBER_MY_PID || null); }), 1000);
+}
+window.AMBER_V26 = { openArena, closeArena, openWorld, setFake, crowdList, worldData, ARENA, FAKE };
+start();
+})();
