@@ -169,11 +169,10 @@ async function missionRefresh() {
 async function missionClaimRpc(mission) {
   if (missionBusy) return;
   missionBusy = true;
-  let locked = false;
   try {
     if (!online()) throw Error('ต้องเชื่อม Supabase ก่อนรับรางวัล');
-    await cloud().beginMarket();
-    locked = true;
+    // V28.2: quest claim itself is already an atomic, server-locked transaction.
+    // Do NOT call beginMarket(): legacy autosave can reject and prevent claiming rewards.
     const {data, error} = await sb().rpc('amber_v279_mission_claim',{p_mission: mission});
     if (error) throw error;
     if (!data?.ok) {
@@ -189,7 +188,8 @@ async function missionClaimRpc(mission) {
     console.error('[V27.9 mission claim]',e);
     notify('รับรางวัลเควสต์ไม่สำเร็จ: '+String(e.message || e).slice(0,105));
   } finally {
-    if (locked) try { await cloud().endMarket(); } catch(e) {console.warn('[V27.9 mission sync]',e);}
+    // Always reload wallet and bag from Supabase, including the success path.
+    try { await cloud()?.refreshMarketEconomy?.(); } catch(e) {console.warn('[V28.2 quest wallet sync]',e);}
     missionBusy = false;
     try {await missionRefresh();} catch (e) { console.warn('[V27.9 mission status]',e); }
   }
@@ -252,12 +252,30 @@ function wbTick() {
 setInterval(() => safe(wbTick), 1000);
 
 /* ------------------------------------------------------------------ 7 rebirth */
-function doRebirth() {
-  const st = S(), v = V(); if (st.lv < 100 || v.rebirth >= 10) return; if (!confirm('เกิดใหม่: เลเวลกลับเป็น 1 แต่ได้โบนัสถาวร (ATK+12 DEF+8 HP+150 MP+40 และ EXP +10%) ต่อครั้ง · ของ ทอง สกิลที่เรียน ยังอยู่ · ยืนยัน?')) return;
-  v.rebirth++; st.lv = 1; st.xp = 0; st.points = 20 + v.rebirth * 10; st.skillPoints = (st.skillPoints || 0) + 3; st.stats = { STR: 15, DEX: 12, INT: 5, VIT: 10, AGI: 8, LUK: 5 };
-  st.map = 'school'; st.mob = 'school_0'; safe(() => { st.hp = maxHp(); st.mp = maxMp(); });
-  refreshTitles(); commit(); refresh(); safe(() => chooseMap('school')); safe(() => notify('🔥 เกิดใหม่ครั้งที่ ' + v.rebirth + '!')); openHub('rebirth');
+async function doRebirth() {
+  // V28.2: one authoritative RPC transaction. NEVER alter level, wallet or inventory locally.
+  const st = S(), v = V();
+  if (!st || st.lv < 100 || v.rebirth >= 10) return;
+  if (!window.AMBER_V277?.ready?.()) {
+    safe(() => notify('🔒 ต้องเชื่อม Supabase ก่อนเกิดใหม่'));
+    return;
+  }
+  if (!confirm('เกิดใหม่: เลเวลกลับเป็น 1 แต่ได้โบนัสถาวร ATK+12 DEF+8 HP+150 MP+40 และ EXP+10% ต่อครั้ง (สูงสุด 10 ครั้ง) · ของ ทอง และสกิลที่เรียนยังอยู่ · ยืนยัน?')) return;
+  try {
+    const data = await window.AMBER_V277.invoke('amber_v282_rebirth', {});
+    if (!data?.ok || !data?.save || !Number.isInteger(data.rebirth)) throw new Error('REBIRTH_NOT_CONFIRMED');
+    // invoke applies the *server save*, including map, level, points and all owned items.
+    refreshTitles();
+    refresh();
+    safe(() => notify('🔥 Supabase ยืนยันการเกิดใหม่ครั้งที่ ' + data.rebirth + '!'));
+    await openHub('rebirth');
+  } catch (e) {
+    console.error('[AMBER V28.2] server rebirth', e);
+    safe(() => notify('เกิดใหม่ไม่สำเร็จ: ' + (e?.message || e)));
+    // Do not change game state on failure; prior items and level remain server-owned.
+  }
 }
+
 safe(() => { const sh = window.AMBER_ITEM_SHOP; if (sh && sh.expApply) { const o = sh.expApply; sh.expApply = function (x) { const r = V().rebirth | 0; return o.call(this, r ? Math.round(x * (1 + .1 * r)) : x); }; } });
 
 /* ------------------------------------------------------------------ 9 emotes */
