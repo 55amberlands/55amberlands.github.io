@@ -1,0 +1,20 @@
+<!doctype html><html lang="th"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>55 AMBERLANDS — World Boss Safety</title>
+<style>body{background:#0c1121;color:#e9eefb;font:15px system-ui,'Noto Sans Thai',sans-serif;margin:0;line-height:1.5}.wrap{max-width:780px;margin:0 auto;padding:16px}h1{font-size:20px;color:#ffdf95}h2{font-size:16px}article{background:#18233b;border:1px solid #3b4c6c;border-radius:12px;padding:13px;margin:12px 0}small,.muted{color:#a6b5d0}.ok{color:#98efb0}.bad{color:#ffafae}button,a.btn{display:inline-block;background:#b88b3c;color:#14101c;border:0;border-radius:8px;font:bold 15px system-ui;padding:11px 15px;margin:4px;cursor:pointer;text-decoration:none}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;background:#111829;border-radius:8px;padding:10px}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #33415a;text-align:left;padding:9px 3px}code{color:#f6c86f}</style></head><body><main class="wrap"><h1>🛡️ 55 AMBERLANDS — World Boss Safety V27.3</h1><p>ดูผลจาก Supabase จริงแบบอ่านอย่างเดียว ไม่มีปุ่มสร้างของหรือปรับคะแนน</p><a class="btn" href="./index.html">← กลับเกม</a><button id="load">ตรวจสอบเซิร์ฟเวอร์</button><article><h2>สถานะ</h2><p id="auth" class="muted">กำลังตรวจ Google Login…</p><div id="status">—</div></article><article><h2>หลักฐานจ่ายรางวัลของบัญชีนี้</h2><div id="receipts">—</div></article><article><h2>เวลากิจกรรม (ประเทศไทย)</h2><p>บอสเกิดทุก 3 ชั่วโมง: <b>00:00 · 03:00 · 06:00 · 09:00 · 12:00 · 15:00 · 18:00 · 21:00</b></p><p>แต่ละรอบเปิด 30 นาที · Gold + แร่รุ้ง ตามอันดับจริงที่เซิร์ฟเวอร์คำนวณ · ไม่จ่ายคอยล์</p><small>หมายเหตุ: ป้องกันการปลอมผลและรางวัล World Boss เท่านั้น ระบบเซฟ EXP/Gold/ไอเทมจากมอนสเตอร์ปกติยังไม่ได้ย้ายทั้งหมดไปเซิร์ฟเวอร์</small></article></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+(()=>{'use strict';const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const PROJECT='https://rfijdwnzuhvlkfptyoiy.supabase.co', KEY='sb_publishable_8qRFCUpGPd6rftRaAfWVZg_FiEX1r-z';
+const sb=window.supabase?.createClient?.(PROJECT,KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+const fmt=n=>Number(n||0).toLocaleString('th-TH');
+async function load(){if(!sb){$('auth').textContent='ไม่พบ Supabase SDK';return;}$('load').disabled=true;try{
+ const {data:{user},error:err}=await sb.auth.getUser();if(err||!user){$('auth').textContent='กรุณาเข้าสู่ระบบ Google ผ่านหน้าเกมก่อน';$('status').textContent='ยังไม่มีสิทธิ์ดูผล';$('receipts').textContent='—';return;}
+ $('auth').innerHTML='<span class="ok">✓ เข้าสู่ระบบอยู่</span>';
+ const [stat,receipts]=await Promise.all([sb.rpc('amber_v273_status',{}),sb.rpc('amber_v273_receipts',{})]);
+ if(stat.error)throw stat.error;if(receipts.error)throw receipts.error;let s=stat.data||{};
+ $('status').innerHTML='<table><tbody>'+[
+ ['รอบปัจจุบัน',s.event_key],['เปิดอยู่',s.open?'✅ เปิด':'⏰ ปิด'],['HP บอส',fmt(s.boss_hp)+' / '+fmt(s.boss_max_hp)],['บอสถูกกำจัด',s.defeated?'✅ ใช่':'ยังไม่ชนะ'],['คุณเข้าร่วม',s.joined?'✅ ใช่':'ยัง'],['ดาเมจของคุณ',fmt(s.my_damage)],['รางวัลรอบนี้',s.claimed?'✅ รับแล้ว':'ยังไม่รับ']
+ ].map(([a,b])=>'<tr><th>'+esc(a)+'</th><td>'+esc(b)+'</td></tr>').join('')+'</tbody></table>';
+ const rows=Array.isArray(receipts.data)?receipts.data:[];
+ $('receipts').innerHTML=rows.length?rows.map(r=>'<p><b>'+esc(r.event_key)+'</b> · Gold '+fmt(r.reward?.gold)+' · แร่รุ้ง ×'+fmt(r.reward?.ore_prism)+'<br><small>บันทึก '+esc(new Date(r.claimed_at).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'}))+'</small></p>').join(''):'ยังไม่พบรายการจ่าย World Boss V27.3';
+ }catch(e){$('status').innerHTML='<span class="bad">อ่านข้อมูลไม่สำเร็จ: '+esc(e?.message||e)+'</span>';}finally{$('load').disabled=false;}}
+ $('load').addEventListener('click',load);load();})();
+</script></body></html>

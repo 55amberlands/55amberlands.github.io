@@ -190,7 +190,7 @@ function onRaidWin() {
 }
 
 /* ------------------------------------------------------------------ 4 world boss event */
-const WB_HOURS = [18], WB_MIN = 30;
+const WB_HOURS = [0,3,6,9,12,15,18,21], WB_MIN = 30;
 function wbWindow() {
   const n = new Date(); let open = null, next = null;
   for (let d = 0; d < 2 && !open; d++) for (const h of WB_HOURS) { const s = new Date(n.getFullYear(), n.getMonth(), n.getDate() + d, h, 0, 0).getTime(), e = s + WB_MIN * 60000; if (n >= s && n < e) { open = { s, e }; break; } if (s > n && !next) next = s; }
@@ -362,7 +362,7 @@ function tabDaily() {
 }
 function tabBoss() {
   const w = wbWindow(), ts = WB_HOURS.map(h => pad(h) + ':00').join(' · '), v = V();
-  return `<p class="px25-hint">บอสโลกเปิดทุกวัน <b>${ts} น.</b> (ครั้งละ ${WB_MIN} นาที) — เข้าได้ทั้งปาร์ตี้ของคุณ และรวมสูงสุด <b>10 ปาร์ตี้</b> ในห้องเดียว เห็นทุกคนตีบอสพร้อมกัน · ชนะรับ <b>คอยล์ 100,000–300,000 ตามอันดับ · Gold · แร่รุ้งดารา</b> (อันดับดาเมจ 1-3 ได้คอยล์และแร่เพิ่ม) · <b>หมายเหตุ:</b> ขณะนี้รางวัลจริงรอระบบยืนยันผลบอสจากเซิร์ฟเวอร์ โหมดจำลองไม่มีรางวัล</p><div class="px25-wbcard ${w.open ? 'on' : ''}"><img src="${PX.creatures.reg('จ้าวมังกรเพลิง')}" alt=""><div>${w.open ? '🔥 <b>เปิดอยู่ตอนนี้!</b>' : '⏳ รอบถัดไป ' + new Date(w.next).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}<br><small>ดาเมจสัปดาห์นี้: <b>${fmt(v.wb.week === wkey() ? v.wb.dmg : 0)}</b> · ชนะบอสโลก ${v.wb.total | 0} ครั้ง</small></div><button class="goldbtn" data-v25="wbjoin">⚔️ ${w.open ? 'เข้าร่วมเลย' : 'ดูห้องบอส (ซ้อม)'}</button><button data-v25="wbprac">🧪 ซ้อมดูมุมมอง</button></div>`;
+  return `<p class="px25-hint">👑 บอสโลกเกิดทุก 3 ชั่วโมง (เวลาไทย): <b>${ts} น.</b> ครั้งละ <b>${WB_MIN} นาที</b> · ตีจริงใช้ผล HP/ดาเมจและอันดับจาก Supabase เท่านั้น · รางวัล: <b>Gold 100,000 / 75,000 / 55,000 / 35,000</b> ตามอันดับ + โบนัส Gold ตามเลเวล, <b>แร่รุ้ง 5 / 4 / 3 / 2</b>, เพชรเพลิง ×1 และไข่มุก ×1 · <b>ไม่แจกคอยล์</b> · Auto Bot / Auto Skill / Auto Potion เปิด-ปิดในห้องบอส · โหมดซ้อมไม่ได้ของจริง</p><div class="px25-wbcard ${w.open ? 'on' : ''}"><img src="${PX.creatures.reg('จ้าวมังกรเพลิง')}" alt=""><div>${w.open ? '🔥 <b>เปิดอยู่ตอนนี้!</b>' : '⏳ รอบถัดไป ' + new Date(w.next).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}<br><small>ดาเมจสัปดาห์นี้: <b>${fmt(v.wb.week === wkey() ? v.wb.dmg : 0)}</b> · ชนะบอสโลก ${v.wb.total | 0} ครั้ง</small></div><button class="goldbtn" data-v25="wbjoin">⚔️ ${w.open ? 'เข้าร่วมเลย' : 'ดูห้องบอส (ซ้อม)'}</button><button data-v25="wbprac">🧪 ซ้อมดูมุมมอง</button><button data-v25="wbclaim">🏅 ตรวจรับรางวัลบอสล่าสุด</button><a href="./v27_3_safety_status.html" target="_blank" rel="noopener">🛡️ Safety Supabase</a></div>`;
 }
 function tabCards() {
   const mons = MON(); let own = 0; const cells = mons.map(m => {
@@ -410,7 +410,7 @@ document.addEventListener('click', e => {
   const tb = e.target.closest('[data-v25tab]'); if (tb) { openHub(tb.dataset.v25tab); return; }
   const b = e.target.closest('[data-v25]'); if (!b || b.disabled) return; const a = b.dataset.v25;
   if (a === 'checkin') { doCheckin(); openHub('checkin'); } else if (a === 'mclaim') { claimMission(+b.dataset.i); openHub('daily'); } else if (a === 'dbonus') { claimDailyBonus(); openHub('daily'); }
-  else if (a === 'wbjoin') { if (window.AMBER_V26) { closeHub(); window.AMBER_V26.openArena(false); } else wbJoin(); } else if (a === 'wbprac') { closeHub(); window.AMBER_V26 && window.AMBER_V26.openArena(true); } else if (a === 'rebirth') doRebirth();
+  else if (a === 'wbjoin') { if (window.AMBER_V26) { closeHub(); window.AMBER_V26.openArena(false); } else wbJoin(); } else if (a === 'wbprac') { closeHub(); window.AMBER_V26 && window.AMBER_V26.openArena(true); } else if (a === 'wbclaim') { window.AMBER_V273?.claimLast?.(); } else if (a === 'rebirth') doRebirth();
   else if (a === 'title') { V().titles.active = b.dataset.id; commit(); decorateScene(); openHub('titles'); } else if (a === 'titleauto') { V().titles.active = 'auto'; commit(); openHub('titles'); }
   else if (a === 'sharechar') shareCard(null); else if (a === 'shareg') shareCard((S().gear || []).find(g => String(g.id) === b.dataset.id));
   else if (a === 'copy') { safe(() => navigator.clipboard.writeText(b.dataset.t)); notify('คัดลอกแล้ว'); }

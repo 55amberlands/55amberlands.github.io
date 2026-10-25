@@ -1,7 +1,7 @@
 /* 55 AMBERLANDS V26 — REALTIME CROWD / PARTY WORLD MAP / WORLD-BOSS ARENA
  *  A  Same-map crowd: see up to 10 players (you + 9) standing in the map, each with the monster they fight above them
  *  B  "ใครอยู่ไหน" world map: dots for up to 10 parties (+ solo dots) per place, tap a party dot -> request to join
- *  C  18:00 World-Boss arena: boss on top, everybody at the bottom, up to 10 parties, shared HP via broadcast
+ *  C  3-hourly World-Boss arena: browser renders; V27.3 Supabase RPC owns damage, HP, cooldown and payout
  *  Uses the existing Supabase realtime room (presence + broadcast). No new SQL. Offline = simulation mode.
  */
 (() => {
@@ -166,8 +166,8 @@ onNet('v26jr', m => {
 });
 
 /* =============================================================== C. world boss arena */
-const ARENA = { on: false, practice: false, simulated: false, ev: '', boss: null, me: null, roster: {}, bots: [], t0: 0, done: false, tick: 0, hb: 0, timers: [] };
-const eventKey = () => { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate() + 'T18'; };
+const ARENA = { on: false, practice: false, simulated: false, serverMode: false, server: null, serverBusy: false, claiming: false, ev: '', boss: null, me: null, roster: {}, bots: [], t0: 0, done: false, tick: 0, hb: 0, timers: [], autoBot: true, autoSkill: true, autoPotion: true, testHP: 500, testMaxHP: 500, testMP: 120, testMaxMP: 120, testHpPots: 5, testMpPots: 5, manual: false };
+const eventKey = () => { const d = new Date(); const h = Math.floor(d.getHours()/3)*3; return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + 'T' + String(h).padStart(2,'0'); };
 function pickBoss() {
   const bs = (typeof MONS !== 'undefined' ? MONS : []).filter(m => m.boss && PX.creatures.TABLE[m.name]); if (!bs.length) return null;
   const day = Math.floor(Date.now() / 86400000); return bs[day % bs.length];
@@ -195,28 +195,50 @@ function startBots() {
   let i = 0; groups.forEach(([k, n], gi) => { for (let a = 0; a < n; a++, i++) ARENA.bots.push({ id: 'bot' + i, bot: true, n: FN[i % FN.length], lv: Math.max(20, st.lv + (i % 5) - 2), job: FJ[i % 4], g: i % 2 ? 'female' : 'male', pid: k, atk: Math.max(80, (safe(() => window.AMBER_V12.combat().atk, 100)) * (0.7 + (i % 5) * .15)), crit: .12, w: { w: 'ดาบกล้า', wt: FJ[i % 4], wr: i % 4, we: (i * 2) % 11, wl: 30 }, d: 0, j: now + gi * 10, ttl: i === 1 ? 'set_prism' : i === 5 ? 'set_fire' : '', seen: now, prev: 0 }); });
 }
 function hit(p) { const crit = Math.random() < (p.crit || .1); const base = p.atk * (0.8 + Math.random() * .4); return Math.round(base * (crit ? 1.9 : 1)); }
-function openArena(practice) {
+async function openArena(practice) {
   const w = safe(() => V25().wbWindow(), { open: false });
-  if (!practice && !w.open) { practice = true; }
+  if (!practice && !w.open) practice = true;
   safe(() => closeModal());
   if (ARENA.on) return;
-  Object.assign(ARENA, { on: true, practice: !!practice, simulated: false, ev: practice ? 'prac' + Date.now() : eventKey(), boss: pickBoss(), roster: {}, bots: [], t0: Date.now(), done: false, tick: 0, hb: 0 });
+  const real = !practice;
+  if (real && !window.AMBER_V273?.ready?.()) {
+    safe(() => notify('🛡️ บอสจริงต้องล็อกอินและติดตั้ง Supabase V27.3 ก่อน (กดซ้อมได้)')); return;
+  }
+  const st = ST() || {};
+  Object.assign(ARENA, { on: true, practice: !!practice, simulated: !!practice,
+    serverMode: real, server: null, serverBusy: false, claiming: false, me: null,
+    ev: real ? eventKey() : 'prac' + Date.now(), boss: pickBoss(), roster: {}, bots: [],
+    t0: Date.now(), done: false, tick: 0, hb: 0, manual: false,
+    autoBot: true, autoSkill: st.autoSkill !== false, autoPotion: st.autopot !== false,
+    testMaxHP: safe(() => maxHp(),500), testMaxMP: safe(() => maxMp(),120),
+    testHpPots: 5, testMpPots: 5 });
+  ARENA.testHP = ARENA.testMaxHP; ARENA.testMP = ARENA.testMaxMP;
   if (!ARENA.boss) { ARENA.on = false; safe(() => notify('ยังไม่มีบอสให้จัดกิจกรรม')); return; }
   ARENA.me = myRow(); ARENA.me.d = 0; ARENA.me.j = Date.now();
-  if (practice || !isOnline() || FAKE.on) {
-    startBots();
-    // Synthetic opponents can be used for a visual test, never for a real payout.
-    ARENA.simulated = true;
-  }
+  if (real) {
+    const joined = await window.AMBER_V273.join();
+    if (!joined?.ok) {
+      ARENA.on = false;
+      safe(() => notify('🛡️ เข้า World Boss จริงไม่ได้: ' + (joined?.reason || 'เซิร์ฟเวอร์ไม่ตอบรับ')));
+      return;
+    }
+    ARENA.server = joined; ARENA.ev = joined.event_key;
+  } else startBots();
   buildArena();
   ARENA.timers.push(setInterval(arenaTick, 1000));
 }
-function closeArena() { ARENA.timers.forEach(clearInterval); ARENA.timers = []; ARENA.on = false; $('px26Arena')?.remove(); }
+function closeArena() {
+  ARENA.timers.forEach(clearInterval); ARENA.timers = []; ARENA.on = false;
+  $('px26Arena')?.remove();
+  if (ARENA.serverMode && !ARENA.claiming) void window.AMBER_V273?.leave?.();
+}
 function buildArena() {
   $('px26Arena')?.remove(); const b = ARENA.boss;
   const a = document.createElement('div'); a.id = 'px26Arena';
-  a.innerHTML = `<canvas id="px26Bg"></canvas><div class="px26-top"><div><b>👑 ${ARENA.practice || ARENA.simulated ? 'ซ้อม/จำลองบอสโลก (ไม่มีรางวัลจริง)' : 'บอสโลกกิจกรรม 18:00'}</b> <small id="px26Time"></small></div><button data-px26="arx">✖ ออก</button></div>
+  a.innerHTML = `<canvas id="px26Bg"></canvas><div class="px26-top"><div><b>👑 ${ARENA.practice || ARENA.simulated ? 'ซ้อมบอสโลก (ไม่มีรางวัลจริง)' : 'บอสโลกทุก 3 ชั่วโมง · ยืนยันโดย Supabase'}</b> <small id="px26Time"></small></div><button data-px26="arx">✖ ออก</button></div>
   <div class="px26-boss"><div class="px26-bn">${esc(b.name)} <small>Lv.${b.lv}</small></div><div class="px26-bbar"><i id="px26Hp"></i><span id="px26HpT"></span></div><div class="px26-bimg"><img id="px26Boss" src="${PX.creatures.reg(b.name)}" alt=""><div id="px26Fx"></div></div></div>
+  <div id="px273Vitals"><div>❤️ HP <b id="px273HpT">–</b><div class="px273-meter"><i id="px273Hp"></i></div></div><div>💧 MP <b id="px273MpT">–</b><div class="px273-meter mana"><i id="px273Mp"></i></div></div><small id="px273Pots">🧪 –</small><small id="px273Received"></small></div>
+  <div id="px273Actions"><button data-px26="abot" id="px273AutoBot">AUTO BOT</button><button data-px26="askill" id="px273AutoSkill">AUTO SKILL</button><button data-px26="apot" id="px273AutoPotion">AUTO ยา</button><button data-px26="ahit" id="px273Hit">⚔️ ตีเอง</button></div>
   <div class="px26-field" id="px26Field"></div><div class="px26-foot" id="px26Foot"></div>`;
   document.body.appendChild(a);
   safe(() => { const mi = typeof MAPS !== 'undefined' ? MAPS.findIndex(m => m[0] === b.map) : 0, key = PX.scenes.KEYS[Math.max(0, mi) % PX.scenes.KEYS.length], cv = $('px26Bg'), W = Math.ceil(innerWidth / 4), H = Math.ceil(innerHeight / 4); cv.width = W; cv.height = H; ARENA.scn = PX.scenes.create(key, W, H); ARENA.cv = cv.getContext('2d'); ARENA.W = W; ARENA.H = H; });
@@ -224,38 +246,118 @@ function buildArena() {
 }
 let lastField = '';
 function paintArena(force) {
-  if (!ARENA.on) return; const adm = admitted(), all = adm.all, max = bossMax(), tot = total(), left = Math.max(0, max - tot), pct = Math.max(0, 100 * left / max);
+  if (!ARENA.on) return; const adm = admitted(), all = adm.all;
+  const max = ARENA.serverMode ? (ARENA.server?.boss_max_hp || 14000) : bossMax();
+  const tot = total();
+  const left = ARENA.serverMode ? (ARENA.server?.boss_hp ?? max) : Math.max(0,max-tot);
+  const pct = Math.max(0, 100 * left / max);
+  paintVitals();
   $('px26Hp').style.width = pct + '%'; $('px26HpT').textContent = fmt(left) + ' / ' + fmt(max) + ' (' + pct.toFixed(1) + '%)';
   const w = safe(() => V25().wbWindow(), { open: false, end: 0 }), tl = ARENA.practice ? '' : (w.open ? '⏳ เหลือ ' + Math.max(0, Math.floor((w.end - Date.now()) / 60000)) + ' นาที' : '');
   $('px26Time').textContent = tl + ' · 👥 ' + all.length + ' คน · ' + adm.keys.length + '/10 ปาร์ตี้';
-  const mineIn = adm.keys.includes(ARENA.me.pid), sig = all.map(p => p.id + p.pid + p.lv + p.ttl + p.w.we).join('|') + adm.keys.join(',');
+  const mineIn = ARENA.serverMode || adm.keys.includes(ARENA.me.pid), sig = all.map(p => p.id + p.pid + p.lv + p.ttl + p.w.we).join('|') + adm.keys.join(',');
   if (force || sig !== lastField) {
     lastField = sig; const n = all.length, size = n <= 14 ? 58 : n <= 30 ? 46 : 38;
     const groups = adm.keys.map(k => ({ k, ps: all.filter(p => p.pid === k) }));
     $('px26Field').style.setProperty('--sz', size + 'px');
     $('px26Field').innerHTML = groups.map((g, gi) => `<div class="px26-grp" style="--c:${pcol(g.k)}"><b>${g.ps.some(p => p.me) ? '⭐ ปาร์ตี้ของคุณ' : 'ปาร์ตี้ ' + (gi + 1)} <small>${g.ps.length} คน</small></b><div class="rw">${g.ps.map(p => { const ak = V25().auraKind ? V25().auraKind(p.ttl) : ''; return `<div class="px26-ap${p.me ? ' me' : ''}" data-pid="${esc(p.id)}">${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h atk" src="${heroURL({ job: p.job, g: p.g, w: p.w })}" alt=""><small>${esc(p.n)}</small><em class="dm" data-dm="${esc(p.id)}"></em></div>`; }).join('')}</div></div>`).join('') + (adm.full ? '<p class="px26-warn">🚫 มีผู้เข้าร่วมครบ 10 ปาร์ตี้แล้ว — ปาร์ตี้ใหม่รอรอบหน้า</p>' : '');
   }
-  const rank = all.slice().sort((a, b) => b.d - a.d).slice(0, 5);
-  $('px26Foot').innerHTML = (mineIn ? `<span>⚔️ ดาเมจคุณ <b>${fmt(ARENA.me.d)}</b></span>` : '<span class="px26-warn">🚫 ปาร์ตี้ของคุณเกิน 10 ปาร์ตี้ — โหมดผู้ชม</span>') + `<span class="rk">🏆 ${rank.map((p, i) => `${i + 1}.${esc(p.n)} ${fmt(p.d)}`).join(' · ')}</span>`;
+  const rank = ARENA.serverMode ? (ARENA.server?.ranking || []) : all.slice().sort((a,b) => b.d-a.d).slice(0,5);
+  const rankText = ARENA.serverMode ? rank.map((p,i) => `${p.rank || i+1}.${esc(p.name)} ${fmt(p.damage)}`).join(' · ')
+    : rank.map((p,i) => `${i+1}.${esc(p.n)} ${fmt(p.d)}`).join(' · ');
+  $('px26Foot').innerHTML = (mineIn ? `<span>⚔️ ดาเมจคุณ <b>${fmt(ARENA.me.d)}</b> ${ARENA.serverMode ? '🛡️ SERVER' : '🧪 ซ้อม'}</span>` : '<span class="px26-warn">🚫 ปาร์ตี้ของคุณเกิน 10 ปาร์ตี้ — โหมดผู้ชม</span>') + `<span class="rk">🏆 ${rankText}</span>`;
 }
 function popDmg(id, val, crit) {
   const el = document.querySelector(`[data-dm="${CSS.escape(id)}"]`); if (el) { el.textContent = '-' + fmt(val); el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
   const fx = $('px26Fx'); if (fx) { const s = document.createElement('span'); s.className = 'px26-bd' + (crit ? ' crit' : ''); s.textContent = fmt(val); s.style.left = (15 + Math.random() * 70) + '%'; fx.appendChild(s); setTimeout(() => s.remove(), 900); }
   const bi = $('px26Boss'); if (bi) { bi.classList.add('hit'); setTimeout(() => bi.classList.remove('hit'), 90); }
 }
+function paintVitals() {
+  const d = ARENA.serverMode ? (ARENA.server || {}) : {
+    my_hp:ARENA.testHP,my_max_hp:ARENA.testMaxHP,my_mp:ARENA.testMP,my_max_mp:ARENA.testMaxMP,
+    hp_pots:ARENA.testHpPots,mp_pots:ARENA.testMpPots};
+  const hp = Math.max(0,d.my_hp ?? 0), maxHP = Math.max(1,d.my_max_hp || 1);
+  const mp = Math.max(0,d.my_mp ?? 0), maxMP = Math.max(1,d.my_max_mp || 1);
+  const hpbar = $('px273Hp'), mpbar = $('px273Mp');
+  if (hpbar) hpbar.style.width = (100*hp/maxHP)+'%';
+  if (mpbar) mpbar.style.width = (100*mp/maxMP)+'%';
+  if ($('px273HpT')) $('px273HpT').textContent = fmt(hp)+' / '+fmt(maxHP);
+  if ($('px273MpT')) $('px273MpT').textContent = fmt(mp)+' / '+fmt(maxMP);
+  if ($('px273Pots')) $('px273Pots').textContent = `🧪 HP×${fmt(d.hp_pots)} · MP×${fmt(d.mp_pots)}`;
+  const labels = [['px273AutoBot',ARENA.autoBot],['px273AutoSkill',ARENA.autoSkill],['px273AutoPotion',ARENA.autoPotion]];
+  labels.forEach(([id,on]) => { const btn=$(id);if(btn){btn.classList.toggle('on',!!on);btn.setAttribute('aria-pressed',String(!!on));} });
+  if ($('px273Hit')) $('px273Hit').disabled = ARENA.autoBot || ARENA.done;
+}
+async function serverArenaStep(doAttack) {
+  if (!ARENA.on || ARENA.done || ARENA.serverBusy) return;
+  ARENA.serverBusy = true;
+  const ev = ARENA.ev;
+  try {
+    const s = doAttack ? await window.AMBER_V273.attack(ARENA.autoSkill,ARENA.autoPotion)
+      : await window.AMBER_V273.status(ev);
+    if (!ARENA.on || ARENA.ev !== ev) return;
+    if (s?.ok) {
+      ARENA.server = {...ARENA.server,...s};
+      if (s.my_damage != null) ARENA.me.d = s.my_damage;
+      if (s.hit_damage>0) {
+        popDmg(ARENA.me.id,s.hit_damage,!!s.used_skill);
+        if (s.used_skill) safe(() => {
+          const known = typeof SKILLS !== 'undefined' ? SKILLS.filter(sk => ST()?.learned?.includes(sk.id)) : [];
+          const sk = window.AMBER_V19?.pickSkill?.(known) || known[0];
+          if (sk) window.AMBER_FX?.onAttack?.(sk,s.hit_damage,ARENA.boss);
+        });
+      }
+      const hp = $('px273Received');
+      if (hp && s.incoming_damage>0) hp.textContent = '💥 บอสตีคุณ -'+fmt(s.incoming_damage)+' HP'+(s.used_hp_pot?' · ใช้ยา HP':'');
+      if (s.incoming_damage>0) {const sprite=document.querySelector('.px26-ap.me');if(sprite){sprite.classList.remove('px273-hurt');void sprite.offsetWidth;sprite.classList.add('px273-hurt');}}
+      if (s.used_hp_pot || s.used_mp_pot) safe(() => {if (typeof renderTop==='function') renderTop();});
+      paintArena(false);
+      if (s.defeated) finishArena(true);
+      else if (s.my_hp === 0) finishArena(false);
+      else if (s.ended || !V25().wbWindow().open) finishArena(false);
+    } else if (s?.reason === 'player_defeated') finishArena(false);
+    else if (s?.reason !== 'cooldown' && s?.reason !== 'busy') {
+      const hp=$('px273Received');if(hp)hp.textContent='🛡️ '+String(s?.reason||'เซิร์ฟเวอร์ไม่ตอบกลับ').slice(0,80);
+    }
+  } catch(e) { console.error('[V27.3 arena]',e); }
+  finally { ARENA.serverBusy=false; }
+}
 function arenaTick() {
   if (!ARENA.on || ARENA.done) return; ARENA.tick++;
-  const adm = admitted(), mineIn = adm.keys.includes(ARENA.me.pid);
-  const me = Object.assign(ARENA.me, myRow()); me.d = ARENA.me.d;
-  if (mineIn) { let dmg = hit(me); if (ARENA.tick % 5 === 0) dmg *= 3; me.d += dmg; popDmg(me.id, dmg, ARENA.tick % 5 === 0); }
-  ARENA.bots.forEach(b => { b.seen = Date.now(); if (Math.random() < .8) { const dmg = hit(b); b.d += dmg; if (Math.random() < .5) popDmg(b.id, dmg); } });
-  Object.values(ARENA.roster).forEach(p => { if (p.d > p.prev && Date.now() - p.popAt > 700) { p.popAt = Date.now(); popDmg(p.id, Math.round((p.d - p.prev) / 2.5), false); p.prev = p.d; } });
-  const gap = Math.max(2000, adm.all.length * 80);
-  if (!ARENA.practice && !FAKE.on && mineIn && Date.now() - ARENA.hb > gap) { ARENA.hb = Date.now(); emit('v26wb', { ev: ARENA.ev, n: me.n, lv: me.lv, job: me.job, g: me.g, pid: me.pid, atk: me.atk, w: me.w, d: me.d, j: me.j, ttl: me.ttl }); }
-  if (ARENA.cv) { const sp = ARENA.scn.render(performance.now()); ARENA.cv.putImageData(new ImageData(new Uint8ClampedArray(sp.d.buffer.slice(0)), ARENA.W, ARENA.H), 0, 0); }
+  if (ARENA.serverMode) {
+    if (ARENA.autoBot || ARENA.manual) { ARENA.manual=false; void serverArenaStep(true); }
+    else if (ARENA.tick%3===0) void serverArenaStep(false);
+  } else {
+    const adm=admitted(); const me=Object.assign(ARENA.me,myRow());me.d=ARENA.me.d;
+    const isHit = ARENA.autoBot || ARENA.manual; ARENA.manual=false;
+    if (isHit && adm.keys.includes(ARENA.me.pid)) {
+      const skilled = ARENA.autoSkill && ARENA.testMP>=12 && ARENA.tick%4===0;
+      let dmg = hit(me)*(skilled?2:1);
+      if(skilled) ARENA.testMP-=12;
+      me.d+=dmg;popDmg(me.id,dmg,skilled);
+      const received=8+(ARENA.tick%7);
+      ARENA.testHP=Math.max(0,ARENA.testHP-received);
+      if(ARENA.autoPotion && ARENA.testHpPots>0 && ARENA.testHP<ARENA.testMaxHP*.45){
+        ARENA.testHpPots--;ARENA.testHP=Math.min(ARENA.testMaxHP,ARENA.testHP+Math.ceil(ARENA.testMaxHP*.45));
+      }
+      if(ARENA.autoPotion && ARENA.testMpPots>0 && ARENA.testMP<ARENA.testMaxMP*.2){
+        ARENA.testMpPots--;ARENA.testMP=Math.min(ARENA.testMaxMP,ARENA.testMP+Math.ceil(ARENA.testMaxMP*.5));
+      }
+      if($('px273Received'))$('px273Received').textContent='💥 บอสตีคุณ -'+received+' HP (ซ้อม)';
+    }
+    ARENA.bots.forEach(b=>{b.seen=Date.now();if(Math.random()<.8){const dmg=hit(b);b.d+=dmg;if(Math.random()<.5)popDmg(b.id,dmg);}});
+    if (total()>=bossMax()) finishArena(true);
+    else if (ARENA.testHP<=0) finishArena(false);
+  }
+  Object.values(ARENA.roster).forEach(p=>{if(p.d>p.prev&&Date.now()-p.popAt>700){p.popAt=Date.now();popDmg(p.id,Math.round((p.d-p.prev)/2.5),false);p.prev=p.d;}});
+  // Broadcast status is visual only: not accepted as proof of damage or victory.
+  if (!ARENA.practice && !FAKE.on && Date.now()-ARENA.hb>2600) {
+    ARENA.hb=Date.now(); const me=ARENA.me;
+    emit('v26wb',{ev:ARENA.ev,n:me.n,lv:me.lv,job:me.job,g:me.g,pid:me.pid,atk:me.atk,w:me.w,d:me.d,j:me.j,ttl:me.ttl});
+  }
+  if(ARENA.cv){const sp=ARENA.scn.render(performance.now());ARENA.cv.putImageData(new ImageData(new Uint8ClampedArray(sp.d.buffer.slice(0)),ARENA.W,ARENA.H),0,0);}
   paintArena(false);
-  const w = safe(() => V25().wbWindow(), { open: true });
-  if (total() >= bossMax()) finishArena(true); else if (!ARENA.practice && !w.open) finishArena(false);
+  if (ARENA.serverMode && !V25().wbWindow().open && !ARENA.done) finishArena(false);
 }
 function finishArena(win) {
   if (ARENA.done) return;
@@ -265,37 +367,29 @@ function finishArena(win) {
   const v = safe(() => V25().V(), null);
   const event = ARENA.ev;
   const simulated = ARENA.practice || ARENA.simulated;
-  let rewardTxt = simulated ? 'โหมดซ้อมหรือมีผู้เล่นจำลอง: ไม่มีรางวัลจริง'
-    : !win ? 'ยังปราบบอสไม่สำเร็จ: ไม่มีรางวัล'
-    : '⏳ กำลังให้เซิร์ฟเวอร์ตรวจสอบสิทธิ์ (ยังไม่ได้รับคอยล์/Gold/แร่)';
+  let rewardTxt = simulated ? 'โหมดซ้อม: ไม่มีรางวัลจริง'
+    : !win ? 'ยังไม่ชนะหรือ HP หมด: ยังไม่ได้รับรางวัล (ตรวจรางวัลล่าสุดได้ภายหลัง)'
+    : '⏳ Supabase กำลังตรวจผลบอสจริงและจ่าย Gold/แร่ (ไม่แจกคอยล์)';
 
-  // Local arena damage/rank can be forged: NEVER use them as proof of entitlement.
-  // Only a successful server RPC may mark this event claimed or increment world victories.
-  if (!simulated && win && v && myRank > 0 && window.AMBER_V27?.worldClaim) {
-    void Promise.resolve().then(() => window.AMBER_V27.worldClaim()).then(result => {
+  // Server HP is authoritative. No local broadcast, hit(), ranking, or bot can mint prizes.
+  if (ARENA.serverMode && win && v && window.AMBER_V273?.claim) {
+    ARENA.claiming = true;
+    void window.AMBER_V273.claim(event).then(result => {
       if (result?.ok === true) {
         v.wb.claimed = event;
         v.wb.total = (v.wb.total | 0) + 1;
         safe(() => { V25().commit(); V25().refresh(); });
-        rewardTxt = '✅ เซิร์ฟเวอร์ยืนยันแล้ว: จ่ายรางวัลสำเร็จ';
+        const r = result.reward || {};
+        rewardTxt = '✅ Supabase จ่าย Gold '+fmt(r.gold)+' · แร่รุ้ง ×'+fmt(r.ore_prism)+' · ไม่แจกคอยล์';
       } else if (result?.reason === 'already_claimed') {
-        v.wb.claimed = event;
-        safe(() => V25().commit());
-        rewardTxt = '✅ เซิร์ฟเวอร์ระบุว่ารับรางวัลรอบนี้แล้ว';
-      } else {
-        rewardTxt = '🛡️ เซิร์ฟเวอร์ยังไม่อนุมัติรางวัล (ไม่มีการหักสิทธิ์รับรางวัล)';
-      }
-      if (ARENA.ev === event && ARENA.done) {
-        const status = $('px26RewardStatus');
-        if (status) status.textContent = rewardTxt;
-      }
+        v.wb.claimed = event;safe(() => V25().commit());
+        rewardTxt = '✅ Supabase ยืนยันว่ารับรางวัลรอบนี้แล้ว';
+      } else rewardTxt = '🛡️ เซิร์ฟเวอร์ยังไม่จ่ายรางวัล: '+String(result?.reason||'ไม่ผ่านการตรวจสอบ');
+      if (ARENA.ev === event && ARENA.done && $('px26RewardStatus')) $('px26RewardStatus').textContent = rewardTxt;
     }).catch(e => {
-      console.error('[V27.2 boss claim]', e);
-      if (ARENA.ev === event && ARENA.done) {
-        const status = $('px26RewardStatus');
-        if (status) status.textContent = '🛡️ ตรวจสอบรางวัลไม่สำเร็จ กรุณาตรวจสถานะเซิร์ฟเวอร์';
-      }
-    });
+      console.error('[V27.3 boss claim]',e);
+      if (ARENA.ev === event && $('px26RewardStatus')) $('px26RewardStatus').textContent='🛡️ ตรวจสอบรางวัลไม่สำเร็จ กดตรวจรางวัลล่าสุดจากเมนูกิจกรรมได้';
+    }).finally(() => { ARENA.claiming = false; if (!ARENA.on) void window.AMBER_V273?.leave?.(); });
   }
   const res = document.createElement('div'); res.className = 'px26-res';
   res.innerHTML = `<div class="box"><h2>${win ? (simulated ? '⚔️ จบการซ้อมบอส' : '🏆 ปราบบอสสำเร็จ!') : '⌛ บอสหนีไปแล้ว'}</h2><p>${esc(ARENA.boss.name)} · ผู้ร่วมรบ ${all.length} คน</p><ol>${all.slice(0, 10).map(p => `<li${p.me ? ' class="me"' : ''}>${esc(p.n)} <b>${fmt(p.d)}</b></li>`).join('')}</ol><p id="px26RewardStatus">${esc(rewardTxt)}</p><button class="goldbtn" data-px26="arx">ปิด</button></div>`;
@@ -314,6 +408,10 @@ document.addEventListener('click', e => {
   else if (a === 'reqok') { if (pending) { clearTimeout(pending.t); emit('pinv', { to: pending.from, pid: window.AMBER_MY_PID }); safe(() => notify('ส่งคำเชิญตอบรับแล้ว')); pending = null; } $('px26Req')?.remove(); }
   else if (a === 'reqno') { if (pending) clearTimeout(pending.t); pending = null; $('px26Req')?.remove(); }
   else if (a === 'arx') closeArena();
+  else if (a === 'abot') { ARENA.autoBot=!ARENA.autoBot;paintVitals(); }
+  else if (a === 'askill') { ARENA.autoSkill=!ARENA.autoSkill;paintVitals(); }
+  else if (a === 'apot') { ARENA.autoPotion=!ARENA.autoPotion;paintVitals(); }
+  else if (a === 'ahit') { if (!ARENA.done && !ARENA.autoBot) { ARENA.manual=true;arenaTick(); } }
   else if (a === 'world') openWorld();
 });
 
@@ -342,6 +440,8 @@ const css = document.createElement('style'); css.textContent = `
 .px26-ap{position:relative;width:var(--sz);text-align:center}.px26-ap .px26-h{max-height:var(--sz);max-width:var(--sz);display:block;margin:0 auto}.px26-ap small{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px #000}.px26-ap.me small{color:#ffd24a;font-weight:700}.px26-ap .dm{position:absolute;left:50%;top:-6px;transform:translateX(-50%);font:800 11px system-ui;font-style:normal;color:#fff;text-shadow:0 0 3px #000,1px 1px 0 #c00;opacity:0}.px26-ap .dm.pop{animation:px26up 1s ease-out}.px26-ap .px26-aura{width:150%}
 .px26-ap .px26-h.atk{animation:px26atk .6s steps(2) infinite}@keyframes px26atk{50%{transform:translateY(-4px)}}
 .px26-foot{display:flex;justify-content:space-between;gap:8px;padding:6px 12px;background:#000b;font-size:12px;flex-wrap:wrap}.px26-warn{color:#ff9a9a;font-size:12px}
+#px273Vitals{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:5px 9px;padding:4px 8px;background:#100d24e8;font:11px system-ui}#px273Vitals>div{min-width:92px;flex:1;max-width:190px}#px273Vitals small{font-size:10px;color:#ffe2b0}.px273-meter{height:8px;background:#370d15;border:1px solid #9c4651;border-radius:8px;overflow:hidden}.px273-meter i{height:100%;display:block;width:100%;background:linear-gradient(90deg,#e1314c,#ff8a72);transition:width .3s}.px273-meter.mana{background:#081b3e;border-color:#436fc1}.px273-meter.mana i{background:linear-gradient(90deg,#3479f9,#72dbff)}
+#px273Actions{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;padding:5px 8px;background:#130f26}#px273Actions button{border:1px solid #a18a64;background:#30263b;color:#e2dce4;font:700 11px system-ui;border-radius:8px;padding:8px 5px;min-width:72px;flex:1}#px273Actions button.on{border-color:#94d595;color:#caffc5;background:#205035}#px273Actions button:disabled{opacity:.42}.px26-ap.me.px273-hurt{animation:px273hurt .35s ease-out}@keyframes px273hurt{50%{filter:brightness(3) saturate(.3);transform:translateX(3px)}}
 .px26-res{position:absolute!important;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;z-index:5}.px26-res .box{background:#1a0e33;border:2px solid #ffd24a;border-radius:14px;padding:16px;max-width:380px;width:92%;text-align:center;box-shadow:0 0 28px #ff9aff66}.px26-res ol{text-align:left;padding-left:22px;font-size:13px}.px26-res li.me{color:#ffd24a;font-weight:700}.px26-res li b{float:right}
 #px26Hub{position:relative}
 `;
