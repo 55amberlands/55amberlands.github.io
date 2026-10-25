@@ -71,7 +71,7 @@
     const x=data?.save_data||{};
     // Economy is refreshed from the SQL transaction. Keep locally earned XP, map,
     // HP and combat progress; only market-mutated fields are authoritative here.
-    for(const k of ['gold','bag','gear','mats','potHP','potMP','eq'])if(Object.hasOwn(x,k))state[k]=structuredClone(x[k]);
+    for(const k of ['gold','gems','bag','gear','mats','potHP','potMP','eq'])if(Object.hasOwn(x,k))state[k]=structuredClone(x[k]);
     marketVersion=Number(data.market_version)||0;
     if(typeof render==='function')render();
     if(typeof save==='function')save();

@@ -122,12 +122,20 @@ const CK_REWARDS = [
   { gw: 3, ga: 2, ic: 'crystal' }, { ore_prism: 2, gw: 2, ic: 'chest' },
   { ore_prism: 4, gw: 5, ga: 5, gems: 150, ic: 'chest', rain: true }
 ];
-function ckState() { const c = V().checkin, today = dkey(), yest = dkey(new Date(Date.now() - DAY)); return { c, can: c.last !== today, broken: c.last && c.last !== today && c.last !== yest, today }; }
+function ckState() {
+  const c = V().checkin, info = window.AMBER_V27?.getState();
+  if (online()) {
+    if (!info?.today_th) return { c, can: false, broken: false, today: '' };
+    const today = info.today_th, yest = new Date(Date.parse(today + 'T00:00:00Z') - DAY).toISOString().slice(0, 10);
+    c.day = Number(info.checkin_day) || 0;
+    c.last = info.checkin_last || '';
+    return { c, can: c.last !== today, broken: !!(c.last && c.last !== today && c.last !== yest), today };
+  }
+  return { c, can: false, broken: false, today: '' };
+}
 function doCheckin() {
-  const { c, can, broken, today } = ckState(); if (!can) return;
-  if (broken || c.day >= 7) c.day = 0;
-  const r = CK_REWARDS[c.day]; c.day++; c.last = today;
-  const text = grant(r); refreshTitles(); commit(); refresh(); safe(() => notify('📅 เช็กอินวันที่ ' + c.day + ' · ' + text));
+  if (!online() || !window.AMBER_V27) { safe(() => notify('เช็กอินต้องเชื่อม Supabase V27 ก่อน')); return; }
+  void window.AMBER_V27.checkin();
 }
 
 /* ------------------------------------------------------------------ 2 daily missions */
@@ -147,10 +155,14 @@ function ensureDaily() {
 }
 function bump(id, n = 1) { const v = V(); ensureDaily(); const m = v.daily.m.find(x => x.id === id || (id === 'kill' && x.id === 'kill2')); v.daily.m.forEach(x => { if ((id === 'kill' && (x.id === 'kill' || x.id === 'kill2')) || x.id === id) x.have = Math.min(x.need, x.have + n); }); }
 function claimMission(i) {
-  const v = V(), m = v.daily.m[i], p = POOL.find(x => x.id === m.id); if (!m || m.claimed || m.have < m.need) return;
-  m.claimed = true; const t = grant(p.r(S().lv)); commit(); refresh(); safe(() => notify('✅ ภารกิจสำเร็จ · ' + t));
+  const m = V().daily.m[i];
+  if (!m || m.claimed || m.have < m.need) return;
+  if (m.id === 'login' && online() && window.AMBER_V27) return void window.AMBER_V27.loginMission(i);
+  safe(() => notify('🛡️ ภารกิจนี้รอหลักฐานจากเซิร์ฟเวอร์ จึงยังจ่ายรางวัลไม่ได้'));
 }
-function claimDailyBonus() { const v = V(); if (v.daily.bonus || !v.daily.m.every(m => m.claimed)) return; v.daily.bonus = true; const t = grant({ gems: 40, ore_prism: 1, ga: 3, gw: 2 }); commit(); refresh(); safe(() => notify('🎁 หีบโบนัสรายวัน · ' + t)); }
+function claimDailyBonus() {
+  safe(() => notify('🛡️ หีบรวมรายวันรอระบบยืนยันภารกิจจากเซิร์ฟเวอร์'));
+}
 
 /* ------------------------------------------------------------------ hooks: kills, skills, enhance, raid win */
 function installHooks() {
@@ -173,7 +185,7 @@ function onRaidWin() {
   const dmg = rd && rd.members && rd.members[0] ? rd.members[0].damage | 0 : 0;
   if (m) { const before = cardTier(m.name, true); v.ck[m.name] = (v.ck[m.name] | 0) + 1; if (cardTier(m.name, true) > before) onCardUp(m); }
   const w = wkey(); if (v.wb.week !== w) { v.wb.week = w; v.wb.dmg = 0; } v.wb.dmg += dmg;
-  if (wbWindow().open) { v.wb.total = (v.wb.total | 0) + 1; const t = grant({ gw: 4, ga: 3, gems: 30, ore_prism: 2 }); safe(() => notify('👑 โบนัสบอสโลก! ' + t)); }
+  if (wbWindow().open) safe(() => notify('🛡️ โบนัสบอสโลกรอเซิร์ฟเวอร์ตรวจผลก่อนจ่ายจริง'));
   refreshTitles(); commit(); pushScore();
 }
 
@@ -246,6 +258,8 @@ setInterval(() => safe(decorateScene), 500);
 /* ------------------------------------------------------------------ 8 social (guild / leaderboard / referral) */
 const NPC = ['Aria', 'Kenji', 'Mochi', 'Zeno', 'Luna', 'Bank', 'Pim', 'Rex', 'Nana', 'Tao'];
 async function pushScore() {
+  // V27.1.1: stop client-submitted rank points until server combat events exist.
+  return;
   if (!online()) return; const st = S(), v = V();
   safe(() => sb().from('amber_scores').upsert({ week: wkey(), user_id: uid(), name: st.name, job: st.job, lv: st.lv, kills: st.kills, boss_dmg: v.wb.week === wkey() ? v.wb.dmg : 0, updated_at: new Date().toISOString() }, { onConflict: 'week,user_id' }).then(() => { }, () => { }));
 }
@@ -283,16 +297,18 @@ async function tabInvite() {
   if (online()) { await dbq(sb().from('amber_referrals').upsert({ code, owner: uid() }, { onConflict: 'code' })); const r = await dbq(sb().from('amber_referral_redeems').select('redeemer', { count: 'exact' }).eq('referrer', uid())); if (r.err) err = NEED_SQL; else cnt = (r.data || []).length; }
   const MS = [[1, { gems: 40, gold: 3000 }], [3, { gems: 120, ga: 2 }], [5, { gems: 250, gw: 2, ore_prism: 1 }], [10, { gems: 600, ore_prism: 3 }]];
   const link = location.origin + location.pathname + '?ref=' + code;
-  return `${err}<div class="px25-inv"><p>รหัสเชิญของคุณ</p><div class="px25-code">${code}</div><button data-v25="copy" data-t="${esc(link)}">📋 คัดลอกลิงก์เชิญ</button><p class="px25-hint">เพื่อนที่ใส่รหัสนี้ได้ <b>💠 50 คอยล์ + 💰 3,000 Gold</b> · คุณได้รางวัลตามจำนวนเพื่อนที่ชวนมา (ตอนนี้ ${cnt} คน)</p>
+  return `${err}<div class="px25-inv"><p>รหัสเชิญของคุณ</p><div class="px25-code">${code}</div><button data-v25="copy" data-t="${esc(link)}">📋 คัดลอกลิงก์เชิญ</button><p class="px25-hint">เพื่อนที่ใส่รหัสนี้ได้ <b>รางวัลรอเซิร์ฟเวอร์ตรวจเลเวลก่อน</b> · คุณได้รางวัลตามจำนวนเพื่อนที่ชวนมา (รหัสเชิญที่ใช้ ${cnt} คน · รางวัลนับเฉพาะเพื่อนที่เซิร์ฟเวอร์ยืนยัน Lv.5+)</p>
   <div class="px25-ms">${MS.map(([n, r]) => { const got = v.ref.claimed.includes(n), ok = cnt >= n; return `<div class="px25-m${got ? ' got' : ''}"><b>ชวน ${n} คน</b><small>${grantText(r)}</small>${got ? '<span>✅</span>' : `<button data-v25="refclaim" data-n="${n}" ${ok ? '' : 'disabled'}>รับ</button>`}</div>`; }).join('')}</div>
   <div class="px25-form"><input id="px25Ref" maxlength="8" placeholder="ใส่รหัสเชิญของเพื่อน" ${v.ref.redeemed ? 'disabled' : ''}><button data-v25="refuse" ${v.ref.redeemed ? 'disabled' : ''}>ใช้รหัส</button></div></div>`;
 }
 const grantText = r => [r.gold && fmt(r.gold) + ' Gold', r.gems && r.gems + ' คอยล์', r.ga && 'ไข่มุก×' + r.ga, r.gw && 'เพชร×' + r.gw, r.ore_prism && 'แร่รุ้ง×' + r.ore_prism].filter(Boolean).join(' · ');
 async function refAct(a, btn) {
-  const v = V();
-  if (a === 'refuse') { const c = ($('px25Ref').value || '').trim().toUpperCase(); if (!online()) return notify('ต้องออนไลน์เพื่อใช้รหัสเชิญ'); if (c === myCode()) return notify('ใช้รหัสตัวเองไม่ได้'); const o = await dbq(sb().from('amber_referrals').select('owner').eq('code', c).maybeSingle()); if (!o.data) return notify('ไม่พบรหัสนี้'); const r = await dbq(sb().from('amber_referral_redeems').insert({ redeemer: uid(), referrer: o.data.owner })); if (r.err) return notify('ใช้รหัสไม่สำเร็จ (ใช้ได้บัญชีละครั้ง)'); v.ref.redeemed = true; const t = grant({ gems: 50, gold: 3000 }); commit(); refresh(); notify('🎉 ' + t); }
-  if (a === 'refclaim') { const n = +btn.dataset.n; if (v.ref.claimed.includes(n)) return; const MS = { 1: { gems: 40, gold: 3000 }, 3: { gems: 120, ga: 2 }, 5: { gems: 250, gw: 2, ore_prism: 1 }, 10: { gems: 600, ore_prism: 3 } }; v.ref.claimed.push(n); const t = grant(MS[n]); commit(); refresh(); notify('🎁 ' + t); }
-  openHub('invite');
+  if (!online() || !window.AMBER_V27) return safe(() => notify('รางวัลชวนเพื่อนต้องยืนยันจาก Supabase'));
+  if (a === 'refuse') {
+    const code = ($('px25Ref')?.value || '').trim().toUpperCase();
+    return void window.AMBER_V27.refRedeem(code);
+  }
+  if (a === 'refclaim') return void window.AMBER_V27.refBonus(Number(btn.dataset.n));
 }
 safe(() => { const m = location.search.match(/[?&]ref=([A-Za-z0-9]{6,8})/); if (m) localStorage.setItem('amber_v25_ref', m[1].toUpperCase()); });
 
@@ -329,6 +345,7 @@ let curTab = 'checkin';
 function closeHub() { safe(() => closeModal()); }
 async function openHub(tab) {
   curTab = tab || curTab; ensureDaily(); refreshTitles();
+  if (curTab === 'checkin' && window.AMBER_V27) await window.AMBER_V27.syncState(true);
   const tabs = `<div class="px25-tabs">${TABS.map(([id, t]) => `<button data-v25tab="${id}" class="${id === curTab ? 'on' : ''}">${t}</button>`).join('')}</div>`;
   openModal('🎯 กิจกรรม & ระบบเสริม', tabs + '<div id="px25Body" class="px25-body"><p class="px25-hint">กำลังโหลด…</p></div>');
   const body = $('px25Body'); if (!body) return;

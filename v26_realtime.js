@@ -257,13 +257,14 @@ function finishArena(win) {
   if (ARENA.done) return; ARENA.done = true; const all = allPlayers().slice().sort((a, b) => b.d - a.d), myRank = all.findIndex(p => p.me) + 1, v = safe(() => V25().V(), null);
   let rewardTxt = '';
   if (!ARENA.practice && v && v.wb.claimed !== ARENA.ev && myRank > 0) {
-    v.wb.claimed = ARENA.ev; v.wb.total = (v.wb.total | 0) + (win ? 1 : 0); v.wb.dmg = (v.wb.dmg | 0) + ARENA.me.d;
-    const lvl = ST().lv;
-    // V26.1: World Boss victory coil rewards are six-figure amounts.
-    // Keep Gold, ores and all other bonus items (plus defeat rewards) unchanged.
-    const bossCoils = myRank === 1 ? 300000 : myRank === 2 ? 250000 : myRank === 3 ? 200000 : 100000;
-    const r = win ? { gold: 20000 + lvl * 150, gems: bossCoils, ore_prism: myRank <= 3 ? 2 : 1, ga: 1, gw: 1 } : { gold: 3000 + lvl * 40, gems: 10 };
-    rewardTxt = safe(() => V25().grant(r), ''); safe(() => { V25().commit(); V25().refresh(); });
+    // V27.1.1: NEVER grant browser-computed boss rewards. Live payout must
+    // use a server-issued world proof and the amber_ac_world_claim RPC.
+    v.wb.claimed = ARENA.ev;
+    v.wb.total = (v.wb.total | 0) + (win ? 1 : 0);
+    v.wb.dmg = (v.wb.dmg | 0) + ARENA.me.d;
+    rewardTxt = '🛡️ รางวัลรอผลที่เซิร์ฟเวอร์รับรอง (ยังไม่เพิ่มคอยล์/Gold/แร่)';
+    if (win && window.AMBER_V27) void window.AMBER_V27.worldClaim();
+    safe(() => { V25().commit(); V25().refresh(); });
   }
   const res = document.createElement('div'); res.className = 'px26-res';
   res.innerHTML = `<div class="box"><h2>${win ? '🏆 ปราบบอสสำเร็จ!' : '⌛ บอสหนีไปแล้ว'}</h2><p>${esc(ARENA.boss.name)} · ผู้ร่วมรบ ${all.length} คน</p><ol>${all.slice(0, 10).map(p => `<li${p.me ? ' class="me"' : ''}>${esc(p.n)} <b>${fmt(p.d)}</b></li>`).join('')}</ol><p>${ARENA.practice ? '<small>โหมดซ้อม: ไม่มีรางวัล</small>' : (rewardTxt ? '🎁 ' + esc(rewardTxt) : (myRank ? '<small>รับรางวัลของกิจกรรมนี้ไปแล้ว</small>' : ''))}</p><button class="goldbtn" data-px26="arx">ปิด</button></div>`;
