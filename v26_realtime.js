@@ -238,7 +238,7 @@ function buildArena() {
   a.innerHTML = `<canvas id="px26Bg"></canvas><div class="px26-top"><div><b>👑 ${ARENA.practice || ARENA.simulated ? 'ซ้อมบอสโลก (ไม่มีรางวัลจริง)' : 'บอสโลกทุก 3 ชั่วโมง · ยืนยันโดย Supabase'}</b> <small id="px26Time"></small></div><button data-px26="arx">✖ ออก</button></div>
   <div class="px26-boss"><div class="px26-bn">${esc(b.name)} <small>Lv.${b.lv}</small></div><div class="px26-bbar"><i id="px26Hp"></i><span id="px26HpT"></span></div><div class="px26-bimg"><img id="px26Boss" src="${PX.creatures.reg(b.name)}" alt=""><div id="px26Fx"></div></div></div>
   <div id="px273Vitals"><div>❤️ HP <b id="px273HpT">–</b><div class="px273-meter"><i id="px273Hp"></i></div></div><div>💧 MP <b id="px273MpT">–</b><div class="px273-meter mana"><i id="px273Mp"></i></div></div><small id="px273Pots">🧪 –</small><small id="px273Received"></small></div>
-  <div id="px273Actions"><button data-px26="abot" id="px273AutoBot">AUTO BOT</button><button data-px26="askill" id="px273AutoSkill">AUTO SKILL</button><button data-px26="apot" id="px273AutoPotion">AUTO ยา</button><button data-px26="ahit" id="px273Hit">⚔️ ตีเอง</button></div>
+  <div id="px273Actions" class="px273-collapsed"><div class="px273-buttons" id="px273ActionButtons"><button data-px26="abot" id="px273AutoBot">AUTO BOT</button><button data-px26="askill" id="px273AutoSkill">AUTO SKILL</button><button data-px26="apot" id="px273AutoPotion">AUTO ยา</button><button data-px26="ahit" id="px273Hit">⚔️ ตีเอง</button></div><button type="button" data-px26="atoggle" id="px273Toggle" aria-controls="px273ActionButtons" aria-expanded="false" aria-label="กางแถบ Auto" title="กางแถบ Auto">▼ AUTO</button></div>
   <div class="px26-field" id="px26Field"></div><div class="px26-foot" id="px26Foot"></div>`;
   document.body.appendChild(a);
   safe(() => { const mi = typeof MAPS !== 'undefined' ? MAPS.findIndex(m => m[0] === b.map) : 0, key = PX.scenes.KEYS[Math.max(0, mi) % PX.scenes.KEYS.length], cv = $('px26Bg'), W = Math.ceil(innerWidth / 4), H = Math.ceil(innerHeight / 4); cv.width = W; cv.height = H; ARENA.scn = PX.scenes.create(key, W, H); ARENA.cv = cv.getContext('2d'); ARENA.W = W; ARENA.H = H; });
@@ -408,6 +408,15 @@ document.addEventListener('click', e => {
   else if (a === 'reqok') { if (pending) { clearTimeout(pending.t); emit('pinv', { to: pending.from, pid: window.AMBER_MY_PID }); safe(() => notify('ส่งคำเชิญตอบรับแล้ว')); pending = null; } $('px26Req')?.remove(); }
   else if (a === 'reqno') { if (pending) clearTimeout(pending.t); pending = null; $('px26Req')?.remove(); }
   else if (a === 'arx') closeArena();
+  else if (a === 'atoggle') {
+    const bar = $('px273Actions'), t = $('px273Toggle');
+    if (!bar || !t) return;
+    const folded = bar.classList.toggle('px273-collapsed');
+    t.textContent = folded ? '▼ AUTO' : '▲';
+    t.setAttribute('aria-expanded', String(!folded));
+    t.setAttribute('aria-label', folded ? 'กางแถบ Auto' : 'พับแถบ Auto');
+    t.title = folded ? 'กางแถบ Auto' : 'พับแถบ Auto';
+  }
   else if (a === 'abot') { ARENA.autoBot=!ARENA.autoBot;paintVitals(); }
   else if (a === 'askill') { ARENA.autoSkill=!ARENA.autoSkill;paintVitals(); }
   else if (a === 'apot') { ARENA.autoPotion=!ARENA.autoPotion;paintVitals(); }
@@ -443,6 +452,15 @@ const css = document.createElement('style'); css.textContent = `
 #px273Vitals{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:5px 9px;padding:4px 8px;background:#100d24e8;font:11px system-ui}#px273Vitals>div{min-width:92px;flex:1;max-width:190px}#px273Vitals small{font-size:10px;color:#ffe2b0}.px273-meter{height:8px;background:#370d15;border:1px solid #9c4651;border-radius:8px;overflow:hidden}.px273-meter i{height:100%;display:block;width:100%;background:linear-gradient(90deg,#e1314c,#ff8a72);transition:width .3s}.px273-meter.mana{background:#081b3e;border-color:#436fc1}.px273-meter.mana i{background:linear-gradient(90deg,#3479f9,#72dbff)}
 #px273Actions{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;padding:5px 8px;background:#130f26}#px273Actions button{border:1px solid #a18a64;background:#30263b;color:#e2dce4;font:700 11px system-ui;border-radius:8px;padding:8px 5px;min-width:72px;flex:1}#px273Actions button.on{border-color:#94d595;color:#caffc5;background:#205035}#px273Actions button:disabled{opacity:.42}.px26-ap.me.px273-hurt{animation:px273hurt .35s ease-out}@keyframes px273hurt{50%{filter:brightness(3) saturate(.3);transform:translateX(3px)}}
 .px26-res{position:absolute!important;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;z-index:5}.px26-res .box{background:#1a0e33;border:2px solid #ffd24a;border-radius:14px;padding:16px;max-width:380px;width:92%;text-align:center;box-shadow:0 0 28px #ff9aff66}.px26-res ol{text-align:left;padding-left:22px;font-size:13px}.px26-res li.me{color:#ffd24a;font-weight:700}.px26-res li b{float:right}
+/* V27.3.1 Compact World Boss controls, layout-only. */
+#px273Actions{display:flex;flex-wrap:nowrap;align-items:stretch;justify-content:flex-end;gap:4px;padding:3px 8px;background:#130f26d8;flex:0 0 auto}
+#px273Actions .px273-buttons{display:flex;flex:1 1 auto;min-width:0;gap:3px;align-items:stretch}
+#px273Actions .px273-buttons button{flex:1 1 0;min-width:0;min-height:33px;border-radius:6px;padding:5px 2px;font:700 10px/1.08 system-ui,sans-serif;white-space:nowrap;box-shadow:none}
+#px273Actions #px273Toggle{display:block;flex:0 0 35px;min-width:35px;min-height:33px;padding:5px 2px;font:800 11px system-ui,sans-serif;background:#2b2944;border:1px solid #e6b76a;color:#ffe7ae;border-radius:6px;touch-action:manipulation}
+#px273Actions.px273-collapsed{background:transparent;padding:1px 8px 0;min-height:28px}
+#px273Actions.px273-collapsed .px273-buttons{display:none}
+#px273Actions.px273-collapsed #px273Toggle{flex-basis:63px;min-width:63px;min-height:27px;font-size:10px;background:#211a37dd}
+@media(max-width:390px){#px273Actions .px273-buttons button{font-size:9px;min-height:31px;padding:4px 1px}#px273Actions #px273Toggle{flex-basis:33px;min-width:33px;min-height:31px}#px273Actions.px273-collapsed #px273Toggle{flex-basis:63px;min-width:63px}}
 #px26Hub{position:relative}
 `;
 document.head.appendChild(css);
