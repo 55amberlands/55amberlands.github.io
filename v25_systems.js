@@ -299,19 +299,79 @@ function emoPanel(show) {
 setInterval(() => safe(showEmotes), 700);
 
 /* ------------------------------------------------------------------ title plate + full-set aura in scene */
+/* V30.1.2: source-level live title hydration; no duplicate player IMG. */
+function alignTitleAura(sprite, aura) {
+  // Anchor the V25 aura to the actual V24 hero body instead of the legacy flex cell.
+  const body = sprite.querySelector(':scope > img.px24-hero.amber20-characterBody')
+    || sprite.querySelector(':scope > img.amber20-characterBody');
+  if (!body) return;
+  const box = sprite.getBoundingClientRect();
+  const hero = body.getBoundingClientRect();
+  if (!(box.width > 0 && hero.width > 0)) return;
+  const center = Math.round((hero.left + hero.width / 2 - box.left) * 10) / 10;
+  // The original frame is 72x110: keep it proportional but bright enough at mobile size.
+  const width = Math.max(126, Math.min(212, Math.round(hero.width * 1.85)));
+  const leftValue = center + 'px', widthValue = width + 'px';
+  if (aura.style.getPropertyValue('--amber3012-aura-left') !== leftValue)
+    aura.style.setProperty('--amber3012-aura-left', leftValue);
+  if (aura.style.getPropertyValue('--amber3012-aura-width') !== widthValue)
+    aura.style.setProperty('--amber3012-aura-width', widthValue);
+}
 function decorateScene() {
-  const st = S(); if (!st) return; const people = window.AMBER_SCENE_PLAYERS || [];
+  const st = S(); if (!st) return;
+  const people = window.AMBER_SCENE_PLAYERS || [];
   document.querySelectorAll('#sprites .sprite').forEach((spr, i) => {
-    const tid = i === 0 ? activeTitleId() : (people[i - 1] || {}).ttl || '', key = tid || '-';
-    if (spr.dataset.px25 === key && spr.querySelector('.px25-plate, .px25-aura') !== null === !!tid) return;
-    spr.dataset.px25 = key; spr.querySelectorAll(':scope > .px25-plate, :scope > .px25-aura').forEach(n => n.remove());
-    if (!tid || !TITLES[tid]) return;
-    const pl = el('div', 'px25-plate', titleHTML(tid, true)); spr.insertBefore(pl, spr.querySelector(':scope > small') || null);
-    const ak = auraKind(tid); if (ak) { const a = new Image(); a.className = 'px25-aura'; a.src = PX.ui.auraURL(ak); spr.insertBefore(a, spr.firstChild); }
+    const tid = i === 0 ? activeTitleId() : (people[i - 1] || {}).ttl || '';
+    const key = tid || '-';
+    const valid = !!(tid && TITLES[tid]);
+    const auraKindNeeded = valid ? auraKind(tid) : '';
+    let plate = spr.querySelector(':scope > .px25-plate');
+    let aura = spr.querySelector(':scope > img.px25-aura');
+
+    // React to real title change, not every animation tick. Keep unchanged IMG node
+    // so the PX animation player does not restart its 10-frame sequence.
+    if (spr.dataset.px25 !== key) {
+      plate?.remove(); aura?.remove(); plate = null; aura = null;
+      spr.dataset.px25 = key;
+    }
+    if (!valid) { plate?.remove(); aura?.remove(); return; }
+
+    if (!plate) {
+      plate = el('div', 'px25-plate', titleHTML(tid, true));
+      spr.insertBefore(plate, spr.querySelector(':scope > small') || null);
+    }
+    if (!auraKindNeeded) { aura?.remove(); return; }
+    if (!aura) {
+      aura = new Image(); aura.className = 'px25-aura';
+      aura.dataset.auraKind = auraKindNeeded;
+      aura.src = PX.ui.auraURL(auraKindNeeded);
+      spr.insertBefore(aura, spr.firstChild);
+    } else if (aura.dataset.auraKind !== auraKindNeeded) {
+      aura.dataset.auraKind = auraKindNeeded;
+      aura.src = PX.ui.auraURL(auraKindNeeded);
+    }
+    alignTitleAura(spr, aura);
   });
-  const top = $('pname'); if (top) { let t = $('px25TopTitle'); const tid = activeTitleId(); if (!t) { t = el('div', '', ''); t.id = 'px25TopTitle'; top.insertAdjacentElement('afterend', t); } const h = tid ? titleHTML(tid, true) : ''; if (t.dataset.h !== h) { t.dataset.h = h; t.innerHTML = h; } }
+  const top = $('pname');
+  if (top) {
+    let t = $('px25TopTitle'); const tid = activeTitleId();
+    if (!t) { t = el('div', '', ''); t.id = 'px25TopTitle'; top.insertAdjacentElement('afterend', t); }
+    const h = tid ? titleHTML(tid, true) : '';
+    if (t.dataset.h !== h) { t.dataset.h = h; t.innerHTML = h; }
+  }
 }
 setInterval(() => safe(decorateScene), 500);
+// The game rewrites #sprites during combat and realtime synchronization.
+// Restore the exact title/aura in the same microtask, before next browser paint,
+// instead of leaving it missing for up to 500ms. Observe children of host only:
+// adding aura/plate INSIDE sprite will not retrigger this observer.
+const amber3012SpritesHost = $('sprites');
+if (amber3012SpritesHost) {
+  new MutationObserver(() => safe(decorateScene)).observe(amber3012SpritesHost, { childList: true });
+}
+window.addEventListener('resize', () => safe(decorateScene), { passive: true });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) safe(decorateScene); });
+safe(decorateScene);
 
 /* ------------------------------------------------------------------ 8 social (guild / leaderboard / referral) */
 const NPC = ['Aria', 'Kenji', 'Mochi', 'Zeno', 'Luna', 'Bank', 'Pim', 'Rex', 'Nana', 'Tao'];
@@ -497,7 +557,34 @@ const css = document.createElement('style'); css.textContent = `
 .t-rain{--g:#ff9aff;border-color:#ffffff88;animation:px25glow 3s linear infinite}.t-rain b{background:linear-gradient(90deg,#ff6a6a,#ffe14a,#7dff9a,#7ad8ff,#c08aff,#ff6a6a);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:px25shine 2.6s linear infinite}
 @keyframes px25shine{to{background-position:200% 0}}@keyframes px25glow{0%{box-shadow:0 0 0 1px #000,0 0 12px #ff6a6a}25%{box-shadow:0 0 0 1px #000,0 0 12px #ffe14a}50%{box-shadow:0 0 0 1px #000,0 0 12px #7dff9a}75%{box-shadow:0 0 0 1px #000,0 0 12px #7ad8ff}100%{box-shadow:0 0 0 1px #000,0 0 12px #ff6a6a}}
 .px25-plate{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(100% + 2px);z-index:6;pointer-events:none}#sprites .sprite{position:relative}
-.px25-aura{position:absolute!important;left:50%;bottom:-6px;width:150%!important;max-width:none!important;height:auto!important;border:0!important;border-radius:0!important;transform:translateX(-50%);z-index:0!important;pointer-events:none;image-rendering:pixelated;mix-blend-mode:screen;opacity:.95}
+/* AMBER_V3012_SOURCE_FIXED_AURA: do not crop 72x110 aura to 1:1 via legacy .sprite img selector.
+   Reuse SAME V25 ten-frame sprites as boss-practice scene. Respect live character anchor.
+   Never create duplicate hero layers or mask older sprites. */
+#sprites .sprite{isolation:isolate}
+#sprites .sprite>img.px25-aura{
+  position:absolute!important;
+  left:var(--amber3012-aura-left,50%)!important;
+  bottom:-6px!important;
+  width:var(--amber3012-aura-width,170%)!important;
+  height:auto!important;
+  max-width:none!important;
+  aspect-ratio:auto!important;
+  object-fit:contain!important;
+  border:0!important;border-radius:0!important;
+  background:transparent!important;box-shadow:none!important;
+  transform:translateX(-50%)!important;
+  z-index:2!important;
+  pointer-events:none!important;
+  image-rendering:pixelated!important;
+  opacity:1!important;
+  mix-blend-mode:screen!important;
+  filter:brightness(1.21) saturate(1.22) drop-shadow(0 0 5px #ffd39180)!important;
+}
+#sprites .sprite>img.amber20-characterWing{z-index:1!important}
+#sprites .sprite>img.px24-hero.amber20-characterBody{z-index:3!important}
+#sprites .sprite>.px24-equipfx{z-index:4!important}
+#sprites .sprite>.px25-plate{z-index:6!important}
+#sprites .sprite>small{z-index:7!important}
 .px25-emote{position:absolute!important;left:50%;top:-26px;width:44px!important;height:auto!important;border:0!important;border-radius:0!important;transform:translateX(-50%);z-index:9;image-rendering:pixelated;pointer-events:none;animation:px25pop .3s ease-out}@keyframes px25pop{from{transform:translateX(-50%) scale(.3)}to{transform:translateX(-50%) scale(1)}}
 #px25TopTitle{margin:3px 0 1px}
 .px25-setbox{border:1px solid #4a2c86;border-radius:10px;padding:8px;background:#1a0e33;margin-bottom:8px}.px25-setbox.full{border-color:#fff;box-shadow:0 0 14px #ff9aff88 inset,0 0 10px #7ad8ff88;animation:px25glow 3s linear infinite}.px25-pc{display:inline-block;font-size:11px;background:#2a1850;border-radius:99px;padding:1px 8px;margin:2px;color:#8a7aa8}.px25-pc.ok{color:#fff;background:#6a3aa8}
