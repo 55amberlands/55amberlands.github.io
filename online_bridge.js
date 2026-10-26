@@ -48,7 +48,26 @@
     showMessage(STATUS.message);
   }
   function controls(options){if(!ui.controls)return;ui.controls.innerHTML='';for(const [text,action] of options){const b=document.createElement('button');b.textContent=text;b.addEventListener('click',action);ui.controls.appendChild(b)}}
-  function hideOverlay(){document.documentElement.classList.add('amber-ready');ui.overlay?.remove();ui.overlay=null;ui.label=null;ui.controls=null}
+  // V30.1 NO-LEGACY-FLASH: never uncover the old game during client boot.
+  // The original HTML engine starts first; Pixel V24 and server V30 load later.
+  async function hideOverlay(){
+    if(document.readyState!=='complete'){
+      showMessage('กำลังเตรียมเกม 55 AMBERLANDS เวอร์ชันล่าสุด...');
+      await new Promise(resolve=>window.addEventListener('load',resolve,{once:true}));
+    }
+    const missing=[];
+    if(typeof render!=='function')missing.push('GAME_RENDER');
+    if(!window.PX?.anim?._t)missing.push('PIXEL_V24');
+    if(typeof window.AMBER_V277?.invoke!=='function')missing.push('SERVER_ACTIONS');
+    if(typeof window.AMBER_V300_VITALS?.get!=='function')missing.push('V30_VITALS');
+    if(missing.length)throw new Error('ไฟล์เกมโหลดไม่ครบ ('+missing.join(', ')+') กรุณารีเฟรช');
+    // Re-render the Supabase-backed character after all modern layers exist.
+    // Does not write character saves or change any game mechanics.
+    render();
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    document.documentElement.classList.add('amber-ready');
+    ui.overlay?.remove();ui.overlay=null;ui.label=null;ui.controls=null;
+  }
   function showError(err,context='เชื่อมต่อ'){console.error('[AMBER ONLINE]',context,err);showMessage(context+' ไม่สำเร็จ: '+(err?.message||String(err)));controls([['ลองอีกครั้ง',()=>location.reload()]])}
   async function identity(){
     if(!sb)return null;
@@ -212,7 +231,7 @@
     localStorage.setItem('amber_cloud_last_user',currentUser.id);
     STATUS.cloudReady=true;STATUS.signedIn=true;stateText();
     await syncProfile(true);
-    hideOverlay();
+    await hideOverlay();
     const onl=document.getElementById('onl');if(onl)onl.textContent='🟡 กำลังเชื่อมผู้เล่น';
     if(timer)clearInterval(timer);
     timer=setInterval(async()=>{await saveCloud();await syncProfile().catch(e=>console.warn('profile',e))},15000);
