@@ -47,7 +47,7 @@ document.addEventListener('pointerdown',evt=>{const tile=evt.target.closest?.('[
 window.tick=async function v283ServerTick(){
  if(!ready()||busy||Date.now()<autoRetryAfter)return;
  const m=mob();
- if(!m||m.boss){if(state.auto)stop();tell('👑 บอสต้องเข้าเรดหรือดันเจียนที่ Supabase ตรวจสอบ');return;}
+ if(!m||(m.boss&&['dungeon','worldboss'].includes(m.map))){if(state.auto)stop();tell('👑 บอสโลกและดันเจียนต้องใช้โหมดเรดที่ Supabase ตรวจสอบ');return;}
  const oldLevel=Number(state.lv)||1;
  const lastAuto=!!state.auto;
  const learned=Array.isArray(state.learned)?state.learned:[];
