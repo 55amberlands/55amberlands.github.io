@@ -124,7 +124,7 @@ function pageSelect() {
   const w = winOpen(), can = w.open && ready() && installed !== false;
   const win = w.open ? '<b style="color:#4aff9a">🟢 บอสโลกเปิดอยู่ตอนนี้</b> — เลือกบอสที่จะสู้' : '<b style="color:#ffb02e">⏳ ยังไม่ถึงเวลาบอสโลก</b> (เปิดทุก 3 ชั่วโมง ตั้งแต่ 00:00 นาทีที่ 0–30) — ซ้อมมือได้ตลอด';
   return `<div class="px28h-note">${win}<br>บอสทั้ง 10 ตัวเกิดพร้อมกันทุกรอบ เลือกเข้าตัวไหนก็ได้ · ทำดาเมจ <b>≥ ${fmt(MIN_DMG)}</b> ถึงจะมีสิทธิ์ลุ้นเศษบอส (ได้ ${DROP[0]}–${DROP[1]} ชิ้น) · สู้คนเดียวหรือเป็นปาร์ตี้ก็ได้</div>${srvNote()}
-  <div class="px28h-grid">${LIST.map(b => `<div class="px28h-card" style="--c:${b.col}"><span class="px28h-lv">Lv ${b.lv}</span><img class="bs" src="${bossImg(b)}" alt=""><b>${esc(b.name)}</b><small>${esc(b.title)} · ${esc(b.element)}</small><small>❤ ${fmt(b.hp)}</small><small>เศษ: ${esc(b.frag.name)}</small>
+  ${pageLegacy()}<div class="px28h-grid">${LIST.map(b => `<div class="px28h-card" style="--c:${b.col}"><span class="px28h-lv">Lv ${b.lv}</span><img class="bs" src="${bossImg(b)}" alt=""><b>${esc(b.name)}</b><small>${esc(b.title)} · ${esc(b.element)}</small><small>❤ ${fmt(b.hp)}</small><small>เศษ: ${esc(b.frag.name)}</small>
   <button class="px28h-btn" data-h28go="${b.id}" ${can ? '' : 'disabled'}>⚔ เข้าสู้จริง</button><button class="px28h-btn alt" data-h28prac="${b.id}">🧪 ซ้อมมือ</button></div>`).join('')}</div>`;
 }
 function pageBook() {
