@@ -17,6 +17,7 @@ const sb = () => safe(() => cloud().getClient(), null);
 const uid = () => safe(() => cloud().getUser()?.id ?? null, null);
 const online = () => !!(sb() && uid());
 
+/* AMBER_V3015_SERVER_CARDS_TITLES_MISSIONS */
 /* ------------------------------------------------------------------ state */
 const DAY = 86400000, pad = n => String(n).padStart(2, '0');
 const dkey = (d = new Date()) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
@@ -59,7 +60,38 @@ const MON = () => safe(() => MONS, []) || [];
 const CARD_T = [25, 100, 400, 1500], BOSS_T = [1, 5, 15, 40];
 const STAT4 = [['ATK', 5, 'โจมตี'], ['DEF', 3, 'ป้องกัน'], ['HP', 65, 'HP'], ['MP', 30, 'MP']];
 const TMULT = [0, 1, 2, 3.5, 6];
-const cardTier = (name, boss) => { const k = V().ck[name] | 0, T = boss ? BOSS_T : CARD_T; let t = 0; for (let i = 0; i < 4; i++) if (k >= T[i]) t = i + 1; return t; };
+// V30.1.5: online card counts come exclusively from Supabase V291 kill receipts.
+// Never promote state.v25.ck (legacy local counter) into authoritative awards.
+let verifiedCards = null;
+let verifiedCardStamp = 0;
+let verifiedCardsBusy = null;
+const verifiedKillCount = (name) => {
+  if (online()) return verifiedCards && Object.prototype.hasOwnProperty.call(verifiedCards, name)
+    ? Math.max(0, Math.floor(Number(verifiedCards[name]) || 0)) : 0;
+  return Math.max(0, V().ck[name] | 0); // offline preview ONLY; cannot claim server rewards
+};
+async function syncVerifiedCards(force = false) {
+  if (!online()) { verifiedCards = null; verifiedCardStamp = 0; return; }
+  if (!force && verifiedCards && Date.now() - verifiedCardStamp < 30000) return;
+  if (verifiedCardsBusy) return verifiedCardsBusy;
+  verifiedCardsBusy = (async () => {
+    const {data, error} = await sb().rpc('amber_v291_verified_cards');
+    if (error) throw error;
+    if (!data?.ok || !data.cards || Array.isArray(data.cards) || typeof data.cards !== 'object')
+      throw Error('V291_CARD_PROOF_INVALID');
+    verifiedCards = Object.create(null);
+    for (const [name, count] of Object.entries(data.cards)) {
+      if (typeof name === 'string' && name.length <= 100)
+        verifiedCards[name] = Math.max(0, Math.floor(Number(count) || 0));
+    }
+    verifiedCardStamp = Date.now();
+    // Re-paint stats only if the card snapshot changed; do not save server counts in writable v25.ck.
+    safe(() => renderTop());
+  })();
+  try { await verifiedCardsBusy; }
+  finally { verifiedCardsBusy = null; }
+}
+const cardTier = (name, boss) => { const k = verifiedKillCount(name), T = boss ? BOSS_T : CARD_T; let t = 0; for (let i = 0; i < 4; i++) if (k >= T[i]) t = i + 1; return t; };
 function cardBonus(m, t) { const h = PX.hash(m.name) % 4, [k, base] = STAT4[h]; return { k, v: Math.round(base * TMULT[t] * (m.boss ? 3 : 1)), label: STAT4[h][2] }; }
 function totalCards() { let n = 0; for (const m of MON()) if (cardTier(m.name, m.boss) > 0) n++; return n; }
 function eqPieces() {
@@ -99,11 +131,61 @@ const TITLES = {
   wb1:    { name: 'ผู้กล้าบอสแร่', cls: 'fire',  test: () => V().wb.total > 0,    how: 'ชนะบอสแร่ในช่วงกิจกรรม' }
 };
 function refreshTitles() {
+  if (online()) return; // server owns title unlocks; never claim from editable local counters
   const v = V(); let gain = [];
   for (const [id, t] of Object.entries(TITLES)) if (!t.live && t.test && safe(t.test, false) && !v.titles.owned.includes(id)) { v.titles.owned.push(id); gain.push(t.name); }
   if (gain.length) { safe(() => notify('🏷️ ได้รับฉายาใหม่: ' + gain.join(', '))); commit(); }
 }
+// V30.1.5 server-authoritative title preferences and unlocks.
+let serverTitles = null;
+let serverTitlesStamp = 0;
+let titleSyncBusy = null;
+const ULT_NAMES = {ult_fist:'จ้าวกรงเล็บอสุนีบาต +10',ult_sword:'จักรพรรดิดาบสายฟ้า +10',
+  ult_bow:'ราชันธนูวชิระ +10',ult_staff:'จอมเวทอัสนีพิภพ +10'};
+for (const [id, name] of Object.entries(ULT_NAMES)) {
+  if (!TITLES[id]) TITLES[id] = {name, cls:'rain', live:true,
+    how:'สวมอาวุธตำนานบอสโลก +10 ของอาชีพตนเอง (ยืนยันโดย Supabase)'};
+}
+async function syncServerTitles(force = false) {
+  if (!online()) { serverTitles = null; return null; }
+  if (!force && serverTitles && Date.now()-serverTitlesStamp < 30000) return serverTitles;
+  if (titleSyncBusy) return titleSyncBusy;
+  titleSyncBusy = (async () => {
+    const { data, error } = await sb().rpc('amber_v310_title', {p_action:'get',p_title:null});
+    if (error) throw error;
+    if (!data?.ok || !Array.isArray(data.owned)) throw Error('V310_TITLE_STATUS_INVALID');
+    serverTitles = { active:String(data.active || ''), requested:String(data.requested || 'auto'),
+      owned:new Set(data.owned.filter(x=>typeof x === 'string')) };
+    serverTitlesStamp = Date.now();
+    return serverTitles;
+  })();
+  try { return await titleSyncBusy; } finally { titleSyncBusy = null; }
+}
+async function chooseServerTitle(id) {
+  if (!online()) { safe(()=>notify('🔒 ต้องออนไลน์เพื่อเปลี่ยนฉายา')); return; }
+  try {
+    const requested = ['set_fire','set_ice','set_prism'].includes(id) ? 'set_boss' : id;
+    const {data,error} = await sb().rpc('amber_v310_title',{p_action:'set',p_title:requested});
+    if (error) throw error;
+    if (!data?.ok) {safe(()=>notify('🔒 ไม่สามารถเลือกฉายานี้ได้: '+String(data?.reason || 'locked')));return;}
+    await syncServerTitles(true);
+    const v=V(); v.titles.active = serverTitles?.requested || 'auto';
+    // Display server-confirmed title; cloud autosave is NOT used to authorize it.
+    safe(()=>decorateScene());
+    safe(()=>notify('✅ เปลี่ยนฉายาแล้ว (ยืนยันจาก Supabase)'));
+  } catch(e){console.error('[V3015 title change]',e);safe(()=>notify('เปลี่ยนฉายาไม่สำเร็จ: '+String(e.message||e).slice(0,100)));}
+  finally {void openHub('titles');}
+}
 function activeTitleId() {
+  if (online() && serverTitles) {
+    const id = serverTitles.active;
+    // Server stores one generic boss-set ID; existing V25 visuals retain specific
+    // fire / ice / prism theme only when five actually equipped boss items permit it.
+    if (id === 'set_boss') { const si=setInfo(); return si.full && si.id ? si.id : 'set_boss'; }
+    return TITLES[id] ? id : '';
+  }
+  // While the first RPC is loading, retain the previously visible legacy title
+  // rather than blanking the label and creating a visible flicker.
   const v = V(), si = setInfo();
   if (v.titles.active === 'auto' || !v.titles.active) { if (si.id) return si.id; const o = v.titles.owned; return o.length ? o[o.length - 1] : ''; }
   if (v.titles.active.startsWith('set_') || v.titles.active === 'boss3') return si.id === v.titles.active ? si.id : (si.id || '');
@@ -195,9 +277,14 @@ async function missionClaimRpc(mission) {
   }
 }
 async function claimMission(i) {
-  const m = V().daily?.m?.[i];
-  if (!m || m.claimed || m.have < m.need) return;
-  if (m.id === 'login' && online() && window.AMBER_V27) return window.AMBER_V27.loginMission(i);
+  if (!online()) { safe(()=>notify('ต้องเชื่อม Supabase ก่อนรับรางวัล')); return; }
+  const originalId = V().daily?.m?.[i]?.id;
+  if (!originalId) return;
+  try { await missionRefresh(); } catch (e) { safe(()=>notify('ตรวจสถานะเควสต์จาก Supabase ไม่สำเร็จ')); return; }
+  const m = V().daily?.m?.find(x=>x.id===originalId);
+  if (!m || m.claimed) {safe(()=>notify('รับรางวัลนี้แล้วหรือเควสต์เปลี่ยนวัน'));return;}
+  if (m.have < m.need) {safe(()=>notify(`หลักฐานเควสต์ยังไม่ครบ (${m.have}/${m.need})`));return;}
+  if (m.id === 'login' && window.AMBER_V27) return window.AMBER_V27.loginMission(i);
   return missionClaimRpc(m.id);
 }
 async function claimDailyBonus() {
@@ -211,7 +298,7 @@ function installHooks() {
     tick = function () {
       const st = S(), k = st ? st.kills : 0, m = safe(() => mob(), null), name = m && m.name, rd = typeof raid !== 'undefined' ? raid : null;
       t0.apply(this, arguments);
-      if (st && st.kills > k && name && !rd) { const n = st.kills - k, v = V(); const before = cardTier(name, m.boss); v.ck[name] = (v.ck[name] | 0) + n; bump('kill', n); if (cardTier(name, m.boss) > before) onCardUp(m); }
+      if (st && st.kills > k && name && !rd) { const n = st.kills - k, v = V(); const before = cardTier(name, m.boss); v.ck[name] = (v.ck[name] | 0) + n; bump('kill', n); if (online()) { void syncVerifiedCards(false).catch(e => console.warn('[V3015 card sync]', e)); } else if (cardTier(name, m.boss) > before) onCardUp(m); }
     };
   });
   safe(() => { const lg = log; log = function (msg, t) { lg.apply(this, arguments); if (typeof msg === 'string' && /^🏆 กำจัด /.test(msg)) onRaidWin(); }; });
@@ -223,7 +310,7 @@ function onCardUp(m) { const t = cardTier(m.name, m.boss), c = cardBonus(m, t); 
 function onRaidWin() {
   const v = V(), rd = typeof raid !== 'undefined' ? raid : null, m = safe(() => mob(), null); v.stat.raids++; bump('raid');
   const dmg = rd && rd.members && rd.members[0] ? rd.members[0].damage | 0 : 0;
-  if (m) { const before = cardTier(m.name, true); v.ck[m.name] = (v.ck[m.name] | 0) + 1; if (cardTier(m.name, true) > before) onCardUp(m); }
+  if (m && !online()) { const before = cardTier(m.name, true); v.ck[m.name] = (v.ck[m.name] | 0) + 1; if (cardTier(m.name, true) > before) onCardUp(m); }
   const w = wkey(); if (v.wb.week !== w) { v.wb.week = w; v.wb.dmg = 0; } v.wb.dmg += dmg;
   if (wbWindow().open) safe(() => notify('🛡️ โบนัสบอสแร่รอเซิร์ฟเวอร์ตรวจผลก่อนจ่ายจริง'));
   refreshTitles(); commit(); pushScore();
@@ -463,6 +550,7 @@ let curTab = 'checkin';
 function closeHub() { safe(() => closeModal()); }
 async function openHub(tab) {
   curTab = tab || curTab; ensureDaily(); refreshTitles();
+  if (online() && !serverTitles) void syncServerTitles().then(()=>safe(decorateScene)).catch(e=>console.warn('[V3015 title hydrate]',e));
   if (curTab === 'checkin' && window.AMBER_V27) await window.AMBER_V27.syncState(true);
   const tabs = `<div class="px25-tabs">${TABS.map(([id, t]) => `<button data-v25tab="${id}" class="${id === curTab ? 'on' : ''}">${t}</button>`).join('')}</div>`;
   openModal('🎯 กิจกรรม & ระบบเสริม', tabs + '<div id="px25Body" class="px25-body"><p class="px25-hint">กำลังโหลด…</p></div>');
@@ -487,9 +575,13 @@ function tabBoss() {
   const w = wbWindow(), ts = WB_HOURS.map(h => pad(h) + ':00').join(' · '), v = V();
   return `<p class="px25-hint">👑 บอสแร่เกิดทุก 3 ชั่วโมง (เวลาไทย): <b>${ts} น.</b> ครั้งละ <b>${WB_MIN} นาที</b> · ตีจริงใช้ผล HP/ดาเมจและอันดับจาก Supabase เท่านั้น · รางวัล: <b>Gold 100,000 / 75,000 / 55,000 / 35,000</b> ตามอันดับ + โบนัส Gold ตามเลเวล, <b>แร่รุ้ง 5 / 4 / 3 / 2</b>, เพชรเพลิง ×1 และไข่มุก ×1 · <b>ไม่แจกคอยล์</b> · Auto Bot / Auto Skill / Auto Potion เปิด-ปิดในห้องบอส · โหมดซ้อมไม่ได้ของจริง</p><div class="px25-wbcard ${w.open ? 'on' : ''}"><img src="${PX.creatures.reg('จ้าวมังกรเพลิง')}" alt=""><div>${w.open ? '🔥 <b>เปิดอยู่ตอนนี้!</b>' : '⏳ รอบถัดไป ' + new Date(w.next).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}<br><small>ดาเมจสัปดาห์นี้: <b>${fmt(v.wb.week === wkey() ? v.wb.dmg : 0)}</b> · ชนะบอสแร่ ${v.wb.total | 0} ครั้ง</small></div><button class="goldbtn" data-v25="wbjoin">⚔️ ${w.open ? 'เข้าร่วมเลย' : 'ดูห้องบอส (ซ้อม)'}</button><button onclick="window.AMBER_V28_HUB && window.AMBER_V28_HUB.open('select')">🐉 บอสโลกใหม่ 10 ตัว</button><button data-v25="wbprac">🧪 ซ้อมดูมุมมอง</button><button data-v25="wbclaim">🏅 ตรวจรับรางวัลบอสล่าสุด</button><a href="./v27_3_safety_status.html" target="_blank" rel="noopener">🛡️ Safety Supabase</a></div>`;
 }
-function tabCards() {
+async function tabCards() {
+  if (online()) {
+    try { await syncVerifiedCards(); }
+    catch (e) { console.error('[V3015 cards]', e); return '<p class="px25-warn">❌ อ่านหลักฐานการ์ดจาก Supabase ไม่ได้ จึงไม่แสดงจำนวนจากเครื่องแทน</p><button data-v25tab="cards">โหลดใหม่</button>'; }
+  }
   const mons = MON(); let own = 0; const cells = mons.map(m => {
-    const t = cardTier(m.name, m.boss), k = V().ck[m.name] | 0, T = m.boss ? BOSS_T : CARD_T, nx = T[Math.min(3, t)]; if (t) own++;
+    const t = cardTier(m.name, m.boss), k = verifiedKillCount(m.name), T = m.boss ? BOSS_T : CARD_T, nx = T[Math.min(3, t)]; if (t) own++;
     const c = t ? cardBonus(m, t) : cardBonus(m, 1);
     // V26.1: Present the exact bonuses calculated by the existing card system.
     // Information only: card thresholds, stat calculation and saved data stay unchanged.
@@ -498,17 +590,21 @@ function tabCards() {
       const rank = i + 1, bonus = cardBonus(m, rank), reached = t >= rank;
       return `<div>${reached ? '✅' : '🔒'} ${esc(levelName(rank))} (${kills} ${m.boss ? 'ครั้ง' : 'ตัว'}) — ${esc(bonus.label)} +${fmt(bonus.v)}</div>`;
     }).join('');
-    const now = t ? `ได้รับแล้ว: ${esc(c.label)} +${fmt(c.v)} (มีผลอัตโนมัติ)` : 'ยังไม่ได้รับโบนัส — ปลดล็อกระดับแรกเพื่อรับค่าสถานะ';
+    const now = t ? `ได้รับแล้ว: ${esc(c.label)} +${fmt(c.v)} (ใช้แสดงผลอัลบั้ม; โบนัสการต่อสู้รอยืนยันสูตรเซิร์ฟเวอร์)` : 'ยังไม่ได้รับโบนัส — ปลดล็อกระดับแรกเพื่อรับค่าสถานะ';
     const next = t >= 4 ? 'สะสมครบระดับรุ้งแล้ว' : `อีก ${Math.max(0, T[t] - k)} ${m.boss ? 'ครั้ง' : 'ตัว'} จะถึงระดับ${esc(levelName(t + 1))}`;
     return `<div class="px25-card${t ? '' : ' lock'}"><img src="${PX.ui.cardURL(m.name, t || 1, !t)}" alt=""><b>${esc(m.name)}</b><small>${t ? PX.ui.RARITY[t].name + ' · ' + c.label + ' +' + c.v : 'ยังไม่ได้การ์ด'}</small><div class="px25-pb"><i style="width:${t >= 4 ? 100 : Math.round(100 * k / nx)}%"></i><span>${k}/${t >= 4 ? 'MAX' : nx}</span></div><details class="px25-cardinfo"><summary>ดูรายละเอียดโบนัส</summary><div>${now}</div><div>${next}</div>${tiers}</details></div>`;
   }).join('');
-  return `<p class="px25-hint">ฆ่ามอนครบจำนวนจะได้การ์ด (ทองแดง→เงิน→ทอง→รุ้ง) ใส่ถาวรเพิ่มค่าสเตตัสอัตโนมัติ · บอสเรดได้การ์ดเร็วกว่าและแรงกว่า ×3 · สะสมแล้ว <b>${own}/${mons.length}</b></p><div class="px25-cards">${cells}</div>`;
+  return `<p class="px25-hint">${online() ? '🛡️ จำนวนฆ่ามอนยืนยันจาก Supabase (ไม่ใช่เซฟในเครื่อง) · ' : '⚠️ โหมดออฟไลน์เป็นเพียงตัวอย่าง · '}ฆ่ามอนครบจำนวนจะได้การ์ด (ทองแดง→เงิน→ทอง→รุ้ง) ใส่ถาวรเพิ่มค่าสเตตัสอัตโนมัติ · บอสเรดได้การ์ดเร็วกว่าและแรงกว่า ×3 · สะสมแล้ว <b>${own}/${mons.length}</b></p><div class="px25-cards">${cells}</div>`;
 }
-function tabTitles() {
+async function tabTitles() {
+  if (online()) {
+    try { await syncServerTitles(true); }
+    catch (e) { console.error('[V3015 titles]',e); return '<p class="px25-warn">❌ ไม่สามารถโหลดฉายาที่เซิร์ฟเวอร์ปลดล็อกได้ กรุณาลองใหม่</p>'; }
+  }
   const v = V(), si = setInfo(), act = activeTitleId();
-  const rows = Object.entries(TITLES).map(([id, t]) => { const own = t.live ? si.id === id : v.titles.owned.includes(id); return `<div class="px25-m ${act === id ? 'got' : ''}">${titleHTML(id)}<small>${esc(t.how)}</small>${own ? (act === id ? '<span>✔ ใช้อยู่</span>' : `<button data-v25="title" data-id="${id}">ใช้ฉายา</button>`) : '<small>🔒</small>'}</div>`; }).join('');
+  const rows = Object.entries(TITLES).map(([id, t]) => { const own = online() ? !!serverTitles?.owned.has(['set_fire','set_ice','set_prism'].includes(id) ? 'set_boss' : id) && (!['set_fire','set_ice','set_prism'].includes(id) || si.id === id) : (t.live ? si.id === id : v.titles.owned.includes(id)); return `<div class="px25-m ${act === id ? 'got' : ''}">${titleHTML(id)}<small>${esc(t.how)}</small>${own ? (act === id ? '<span>✔ ใช้อยู่</span>' : `<button data-v25="title" data-id="${id}">ใช้ฉายา</button>`) : '<small>🔒</small>'}</div>`; }).join('');
   const pieces = eqPieces().map((g, i) => `<span class="px25-pc ${isBossG(g) ? 'ok' : ''}">${['อาวุธ', 'ชุด', 'ถุงมือ', 'รองเท้า', 'แหวน'][i]} ${isBossG(g) ? '🌈' : '—'}</span>`).join('');
-  return `<div class="px25-setbox ${si.full ? 'full' : ''}"><b>ชุดบอส ${si.n}/5</b><div>${pieces}</div><small>${si.full ? '✨ ครบเซ็ต! ฉายาเรืองแสงพร้อมออร่าแสงสีรอบตัว + โบนัส ATK+100 DEF+60 HP+800 MP+200 CRIT+3' : 'สวมของบอสจากดันเจียนให้ครบ 5 ชิ้น (อาวุธ ชุด ถุงมือ รองเท้า แหวน) เพื่อปลดฉายาและออร่า'}</small></div><div class="px25-ms">${rows}</div><button data-v25="titleauto" ${v.titles.active === 'auto' ? 'disabled' : ''}>🔁 เลือกฉายาที่ดีที่สุดอัตโนมัติ</button>`;
+  return `<div class="px25-setbox ${si.full ? 'full' : ''}"><b>ชุดบอส ${si.n}/5</b><div>${pieces}</div><small>${si.full ? '✨ ครบเซ็ต! ฉายาเรืองแสงพร้อมออร่าแสงสีรอบตัว + โบนัส ATK+100 DEF+60 HP+800 MP+200 CRIT+3' : 'สวมของบอสจากดันเจียนให้ครบ 5 ชิ้น (อาวุธ ชุด ถุงมือ รองเท้า แหวน) เพื่อปลดฉายาและออร่า'}</small></div><div class="px25-ms">${rows}</div><button data-v25="titleauto" ${(online() ? serverTitles?.requested : v.titles.active) === 'auto' ? 'disabled' : ''}>🔁 เลือกฉายาที่ดีที่สุดอัตโนมัติ</button>`;
 }
 function tabRebirth() {
   const st = S(), v = V(), can = st.lv >= 100 && v.rebirth < 10;
@@ -534,7 +630,7 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-v25]'); if (!b || b.disabled) return; const a = b.dataset.v25;
   if (a === 'checkinretry') { void openHub('checkin'); } else if (a === 'dailyretry') { void openHub('daily'); } else if (a === 'checkin') { b.disabled=true; void (async()=>{try{await doCheckin();}catch(err){console.error('[V297 checkin]',err);}finally{if($('px25Body')){try{await openHub('checkin');}catch(err){console.error('[V29.7 checkin view]',err);}}}})(); } else if (a === 'mclaim') { void claimMission(+b.dataset.i).then(()=>openHub('daily')); } else if (a === 'dbonus') { void claimDailyBonus().then(()=>openHub('daily')); }
   else if (a === 'wbjoin') { if (window.AMBER_V26) { closeHub(); window.AMBER_V26.openArena(false); } else wbJoin(); } else if (a === 'wbprac') { closeHub(); window.AMBER_V26 && window.AMBER_V26.openArena(true); } else if (a === 'wbclaim') { window.AMBER_V273?.claimLast?.(); } else if (a === 'rebirth') doRebirth();
-  else if (a === 'title') { V().titles.active = b.dataset.id; commit(); decorateScene(); openHub('titles'); } else if (a === 'titleauto') { V().titles.active = 'auto'; commit(); openHub('titles'); }
+  else if (a === 'title') { void chooseServerTitle(b.dataset.id); } else if (a === 'titleauto') { void chooseServerTitle('auto'); }
   else if (a === 'sharechar') shareCard(null); else if (a === 'shareg') shareCard((S().gear || []).find(g => String(g.id) === b.dataset.id));
   else if (a === 'copy') { safe(() => navigator.clipboard.writeText(b.dataset.t)); notify('คัดลอกแล้ว'); }
   else if (/^g(create|join|send|leave)$/.test(a)) guildAct(a, b); else if (a === 'refuse' || a === 'refclaim') refAct(a, b);
@@ -608,7 +704,10 @@ function start() {
   if (!S()) return setTimeout(start, 300);
   ensureDaily(); installHooks(); mount(); refreshTitles(); setTimeout(() => { refresh(); paintDot(); }, 900);
   safe(() => { const r = localStorage.getItem('amber_v25_ref'); if (r) { const v = V(); if (!v.ref.hint) { v.ref.hint = r; } } });
-  setInterval(() => { ensureDaily(); paintDot(); refreshTitles(); }, 15000);
+  setInterval(() => { ensureDaily(); paintDot(); refreshTitles();
+    if (online() && !serverTitles) void syncServerTitles().then(()=>safe(decorateScene)).catch(e=>console.warn('[V3015 title initial]',e));
+    if (online() && Date.now()-verifiedCardStamp>60000 && !verifiedCardsBusy) void syncVerifiedCards().catch(e=>console.warn('[V3015 card initial]',e));
+  }, 15000);
 }
 window.AMBER_V25 = { open: openHub, V, setInfo, activeTitleId, TITLES, shareCard, cardTier, titleHTML, auraKind, wbWindow, grant, commit, refresh };
 start();
