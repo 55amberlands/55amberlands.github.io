@@ -90,7 +90,12 @@ function heroDesc(i) {
 function skinSprites() {
   const { state } = G(); if (!state) return;
   document.querySelectorAll('#sprites .sprite').forEach((el, i) => {
-    const img = el.querySelector(':scope > img:not(.amber20-characterWing):not(.amber-equipped-weapon):not(.amber23-pet-sprite)'); if (!img) return;
+    // V30.1.1 SOURCE FIX: do not reinterpret V25 title aura or emote as a second player.
+    // V25 inserts .px25-aura as the FIRST child image; it is not the hero body.
+    const img = el.querySelector(':scope > img.px24-hero:not(.px25-aura):not(.px25-emote)')
+      || el.querySelector(':scope > img.amber20-characterBody:not(.px25-aura):not(.px25-emote)')
+      || el.querySelector(':scope > img:not(.amber20-characterWing):not(.amber-equipped-weapon):not(.amber23-pet-sprite):not(.px25-aura):not(.px25-emote)');
+    if (!img) return;
     const d = heroDesc(i), sp = wspecOf(d.w), key = ['hero', PX.hero.jobOf(d.job), d.gender === 'female' ? 'female' : 'male', PX.weaponKey(sp), sp ? sp.cls : ''].join('|');
     if (isOurs(img.getAttribute('src'), key)) return;
     img.src = PX.hero.reg(d.job, d.gender, sp); img.classList.add('px24-hero'); img.classList.add('amber20-characterBody');
