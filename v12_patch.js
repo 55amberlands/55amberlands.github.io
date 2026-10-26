@@ -30,12 +30,32 @@ function combat(){
  const str=Number(st.STR||0),dex=Number(st.DEX||0),int=Number(st.INT||0),vit=Number(st.VIT||0),agi=Number(st.AGI||0),luk=Number(st.LUK||0);
  const cls=state.job;
  const focus=cls==='ดาบ'?str*.42:cls==='หมัด'?agi*.96:cls==='ธนู'?dex*1.03:cls==='จอมเวท'?int*1.08:0;
+ // V28.5: Visual-only mirror of the server's item registry combat formula.
+ // The browser never decides damage or item ownership; Supabase does.
+ let gearAtk=0,gearDef=0,gearCrit=0;
+ for(const slot of ['W','S','G','B','R']){
+  const id=state.eq?.[slot];
+  const g=id&&(state.gear||[]).find(x=>String(x.id)===String(id));
+  if(!g||slot!=='R'&&g.cls&&g.cls!==cls||Number(g.req||1)>lv)continue;
+  const enh=bound(Number(g.enh)||0,0,10);
+  const number=x=>Number.isFinite(Number(x))?Math.max(0,Math.min(25000,Number(x))):0;
+  gearAtk+=number(g.base?.ATK)*(1+enh*.10);
+  gearDef+=number(g.base?.DEF)*(1+enh*.10);
+  if(Array.isArray(g.opts))for(const opt of g.opts){
+   if(!Array.isArray(opt)||opt.length<2)continue;
+   const value=number(opt[1]);
+   if(opt[0]==='ATK')gearAtk+=value;
+   if(opt[0]==='DEF')gearDef+=value;
+   if(opt[0]==='CRIT')gearCrit+=value;
+  }
+ }
+ const rb=Math.max(0,Math.min(10,Number(state.v25?.rebirth)||0));
  return {
-  atk:Math.max(1,Math.round(12+lv*2.8+str*1.45+focus)),
-  def:Math.max(0,Math.round(lv*.45+vit*.65)),
+  atk:Math.max(1,Math.round(12+lv*2.8+str*1.45+focus+gearAtk+12*rb)),
+  def:Math.max(0,Math.round(lv*.45+vit*.65+gearDef+8*rb)),
   accuracy:bound(.81+dex*.0027,.2,.985),
   dodge:bound(.025+agi*.0015+dex*.0003,0,.24),
-  crit:bound(.07+luk*.0024,0,.48),
+  crit:bound(.07+luk*.0024+gearCrit/100,0,.80),
   aspd:Math.round(1000/Math.max(650,Math.round(925-agi*2))*100)/100,
   maxHp:Math.round(maxHp()),maxMp:Math.round(maxMp())
  }
