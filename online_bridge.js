@@ -169,7 +169,19 @@
         if(!base){initial.lv=1;initial.job='นักผจญภัย';}
         const {error}=await sb.rpc('amber_create_character',{p_name:name,p_gender:gender,p_save:initial});
         if(error)throw error;
-        resolve(initial);
+        // V299_NEW_CHAR_CANONICAL_GIFT: read the newly-created character back
+        // from Supabase so 100,000 coins + 1,000 HP/MP bottles appear instantly.
+        // Never treat the browser starter as the authoritative wallet.
+        let canonicalNew = null;
+        try {
+          const {data:created,error:readError}=await sb.from(SAVE_TABLE)
+            .select('save_data').eq('user_id',currentUser.id).single();
+          if(readError)throw readError;
+          canonicalNew=created?.save_data||null;
+        } catch(readError) {
+          console.warn('[V29.9] Starter gift is saved; re-login to refresh display',readError);
+        }
+        resolve(canonicalNew || initial);
       }catch(e){
         errorText.textContent=(/duplicate|unique/i.test(String(e.message)))?'ชื่อซ้ำกับผู้เล่นอื่น กรุณาเปลี่ยนชื่อ':('สร้างตัวละครไม่สำเร็จ: '+e.message);
         console.error('[AMBER CREATE]',e);

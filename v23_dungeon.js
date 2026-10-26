@@ -322,7 +322,7 @@ const st=document.createElement('style');st.textContent=`
 .amber24-damage{position:absolute;right:14%;top:29%;font-size:25px;font-weight:1000;color:#ffe67a;text-shadow:2px 2px 1px #6b1213,0 0 10px #111;z-index:30;pointer-events:none;animation:pop .85s ease-out forwards}
 .amber24-rewards{display:grid;gap:7px;margin-top:10px}.amber24-rewards>div{display:grid;gap:4px;border:1px solid #59627a;background:#1b3044;padding:9px;border-radius:8px}.amber24-rewards small{color:#c1d6e1}
 `;document.head.appendChild(st);
-window.AMBER_DUNGEON={open,roomId:()=>inside()&&view?id:'',presenceInfo,checkInvites,room:()=>room,isInside:inside,isViewing:inView,startAuto:toggleAuto};
+window.AMBER_DUNGEON={open,roomId:()=>inside()&&view?id:'',presenceInfo,checkInvites,room:()=>room,isInside:inside,isViewing:inView,startAuto:toggleAuto,useHpPotion:useDungeonPotion}; // V299_DUNGEON_HP_POTION_EXPORT
 setInterval(()=>{attach();restore();if(id&&online()&&!document.hidden){if(inside()&&inView())bossTick();else sync();}},3200);
 setInterval(()=>{const c=$('amber24CoolDown');if(c){c.textContent='⏳ '+cdText();}refreshDungeonOptions();},1000);
 setInterval(()=>{if(online()&&!document.hidden&&!inView())checkInvites(false)},9000);

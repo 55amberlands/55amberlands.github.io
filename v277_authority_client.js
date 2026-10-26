@@ -209,9 +209,33 @@ window.sellItem=async function v277SellItem(index){
 if(window.AMBER_V12)window.AMBER_V12.buyNpc=async function v277BuyNpc(job,slot,level){
  try{await economy('npc_gear',{job,slot,level});window.AMBER_V12.shopRefresh?.();}catch{}
 };
-window.usePotion=async function v277UsePotion(type,auto=false){
- if(!['hp','mp'].includes(type))return false;
- try{await recovery(type);return true;}catch{return false}
+// V299_RECOVERY_POTION_ROUTE — server-owned HP/MP, and separate dungeon HP.
+window.usePotion=async function v299UsePotion(type,auto=false){
+ if(type!=='hp'&&type!=='mp')return false;
+ // The dungeon has its own server-owned HP pool. Never waste a normal-map
+ // HP potion while the player is inside a live dungeon room.
+ if(type==='hp'&&window.AMBER_DUNGEON?.isInside?.()){
+   const dungeonHeal=window.AMBER_DUNGEON?.useHpPotion;
+   if(typeof dungeonHeal==='function')return await dungeonHeal(!!auto);
+   if(!auto)tell('กำลังโหลดระบบยาในดันเจียน กรุณาลองใหม่');
+   return false;
+ }
+ try{
+   const result=await invoke('amber_v277_recovery',{p_action:type,p_id:null},{silent:true});
+   if(result.already_full===true){
+     if(!auto)tell(type==='hp'?'🩸 HP เต็มแล้ว ไม่เสียยา':'💧 MP เต็มแล้ว ไม่เสียยา');
+     return false;
+   }
+   return true;
+ }catch(e){
+   if(!auto){
+     const reason=String(e?.message||e);
+     if(/V277_NO_POTION_OR_DEAD/.test(reason))tell('🧪 ไม่มียา หรือ HP เหลือ 0 ต้องฟื้นก่อน');
+     else if(/V277_ALREADY_FULL/.test(reason))tell('🩸 HP/MP เต็มแล้ว ไม่เสียยา');
+     else tell('⚠️ ใช้ยาไม่สำเร็จ: '+reason.slice(0,95));
+   }
+   return false;
+ }
 };
 window.reviveCharacter=async function v277Revive(){
  try{await recovery('revive');document.getElementById('amberRevive')?.remove();}catch{}

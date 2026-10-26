@@ -61,8 +61,8 @@ function combat(){
  }
 }
 const mhBefore=maxHp, mmBefore=maxMp;
-maxHp=function(){return Math.max(1,Math.round(mhBefore()+Math.max(0,((state.stats||{}).VIT||0)-10)*8))};
-maxMp=function(){return Math.max(1,Math.round(mmBefore()+Math.max(0,((state.stats||{}).INT||0)-5)*3))};
+maxHp=function(){const rb=Math.max(0,Math.min(10,Number(state.v25?.rebirth)||0));return Math.max(1,Math.round(mhBefore()+Math.max(0,((state.stats||{}).VIT||0)-10)*8+rb*1500))}; // V299_UI_REBIRTH_VITALS
+maxMp=function(){const rb=Math.max(0,Math.min(10,Number(state.v25?.rebirth)||0));return Math.max(1,Math.round(mmBefore()+Math.max(0,((state.stats||{}).INT||0)-5)*3+rb*400))};
 function weaponInfo(){const w=weapon();return w?{name:w.name,cls:gearType(w),lv:bound(w.lv,1,100),enh:bound(w.enh,0,10),rar:bound(w.rar,0,3)}:(state.equip==='ดาบฝึกหัด'?{name:'ดาบฝึกหัด',cls:'ดาบ',lv:1,enh:0,rar:0}:null)}
 function presenceInfo(){const w=weaponInfo(),c=combat();return {w:w?.name||'',wt:w?.cls||'',wl:w?.lv||0,we:w?.enh||0,wr:w?.rar||0,atk:c.atk,def:c.def,crt:Math.round(c.crit*100),mhp:c.maxHp,mmp:c.maxMp,acc:Math.round(c.accuracy*100),eva:Math.round(c.dodge*100),spd:Math.round(c.aspd*100)}}
 function lightColor(enh,rar){if(enh>=10)return '#f6fcff';if(enh===9)return '#ff62d5';if(enh===8)return '#ffc94d';if(enh===7)return '#54baff';return ['#aebed3','#96d5aa','#d3a1fc','#ffc47e'][bound(rar,0,3)]}
