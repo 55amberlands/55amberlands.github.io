@@ -36,7 +36,7 @@ function combat(){
  for(const slot of ['W','S','G','B','R']){
   const id=state.eq?.[slot];
   const g=id&&(state.gear||[]).find(x=>String(x.id)===String(id));
-  if(!g||slot!=='R'&&g.cls&&g.cls!==cls||Number(g.req||1)>lv)continue;
+  if(!g||(slot!=='R'&&g.cls&&g.cls!==cls)||Number(g.req||1)>100||(Number(g.req||1)>lv&&Number(state.v25?.rebirth||0)<1))continue;
   const enh=bound(Number(g.enh)||0,0,10);
   const number=x=>Number.isFinite(Number(x))?Math.max(0,Math.min(25000,Number(x))):0;
   gearAtk+=number(g.base?.ATK)*(1+enh*.10);
