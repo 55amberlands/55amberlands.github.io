@@ -331,6 +331,16 @@ function arenaTick() {
   if (ARENA.serverMode) {
     if (ARENA.autoBot || ARENA.manual) { ARENA.manual=false; void serverArenaStep(true); }
     else if (ARENA.tick%3===0) void serverArenaStep(false);
+    // V28.7: Real-time verified ranking is refreshed even while AUTO attacks.
+    if (ARENA.tick%3===0 && !ARENA.rankingBusy && !ARENA.done) {
+      ARENA.rankingBusy=true;const key=ARENA.ev;
+      Promise.resolve(window.AMBER_V273.status(key)).then(s=>{
+        if(ARENA.on&&ARENA.ev===key&&s?.ok&&Array.isArray(s.ranking)){
+          ARENA.server={...(ARENA.server||{}),ranking:s.ranking};
+          paintArena(false);
+        }
+      }).catch(e=>console.warn('[V287 server ranking]',e)).finally(()=>{ARENA.rankingBusy=false});
+    }
   } else {
     const adm=admitted(); const me=Object.assign(ARENA.me,myRow());me.d=ARENA.me.d;
     const isHit = ARENA.autoBot || ARENA.manual; ARENA.manual=false;
@@ -366,8 +376,10 @@ function arenaTick() {
 function finishArena(win) {
   if (ARENA.done) return;
   ARENA.done = true;
-  const all = allPlayers().slice().sort((a, b) => b.d - a.d);
-  const myRank = all.findIndex(p => p.me) + 1;
+  // In a real World Boss, never show fake Realtime/BOT scores as rankings.
+  const verified=ARENA.serverMode ? (Array.isArray(ARENA.server?.ranking)?ARENA.server.ranking:[]) : [];
+  const all=ARENA.serverMode ? verified.map((r,i)=>({n:String(r.name||'ผู้เล่น'),d:Number(r.damage)||0,me:String(r.name)===ARENA.me.n,id:'server_'+i})) : allPlayers().slice().sort((a,b)=>b.d-a.d);
+  const myRank = all.findIndex(p=>p.me)+1;
   const v = safe(() => V25().V(), null);
   const event = ARENA.ev;
   const simulated = ARENA.practice || ARENA.simulated;
@@ -396,8 +408,22 @@ function finishArena(win) {
     }).finally(() => { ARENA.claiming = false; if (!ARENA.on) void window.AMBER_V273?.leave?.(); });
   }
   const res = document.createElement('div'); res.className = 'px26-res';
-  res.innerHTML = `<div class="box"><h2>${win ? (simulated ? '⚔️ จบการซ้อมบอส' : '🏆 ปราบบอสสำเร็จ!') : '⌛ บอสหนีไปแล้ว'}</h2><p>${esc(ARENA.boss.name)} · ผู้ร่วมรบ ${all.length} คน</p><ol>${all.slice(0, 10).map(p => `<li${p.me ? ' class="me"' : ''}>${esc(p.n)} <b>${fmt(p.d)}</b></li>`).join('')}</ol><p id="px26RewardStatus">${esc(rewardTxt)}</p><button class="goldbtn" data-px26="arx">ปิด</button></div>`;
+  res.innerHTML = `<div class="box"><h2>${win ? (simulated ? '⚔️ จบการซ้อมบอส' : '🏆 ปราบบอสสำเร็จ!') : '⌛ บอสหนีไปแล้ว'}</h2><p>${esc(ARENA.boss.name)} · ผู้ร่วมรบ ${all.length} คน</p><ol id="px287WorldBossRank">${ARENA.serverMode&&!all.length?'<li>กำลังตรวจอันดับกับ Supabase...</li>':all.slice(0,10).map(p=>`<li${p.me?' class="me"':''}>${esc(p.n)} <b>${fmt(p.d)}</b></li>`).join('')}</ol><p id="px26RewardStatus">${esc(rewardTxt)}</p><button class="goldbtn" data-px26="arx">ปิด</button></div>`;
   $('px26Arena')?.appendChild(res);
+  // Refresh final scores AFTER the winning hit; attack RPC may not include the ranking array.
+  if(ARENA.serverMode && window.AMBER_V273?.status){
+    Promise.resolve(window.AMBER_V273.status(event)).then(s=>{
+      if(ARENA.ev!==event||!s?.ok||!Array.isArray(s.ranking))return;
+      ARENA.server={...(ARENA.server||{}),ranking:s.ranking};
+      const target=$('px287WorldBossRank');if(!target)return;
+      target.textContent='';
+      for(const row of s.ranking.slice(0,10)){
+        const li=document.createElement('li'),b=document.createElement('b');
+        b.textContent=fmt(Number(row.damage)||0);
+        li.textContent=String(row.name||'ผู้เล่น')+' ';li.appendChild(b);target.appendChild(li);
+      }
+    }).catch(e=>console.warn('[V287 final ranking]',e));
+  }
 }
 
 /* =============================================================== delegated actions + UI */

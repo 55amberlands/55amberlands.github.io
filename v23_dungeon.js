@@ -35,6 +35,15 @@ const inside=()=>!!(id&&room&&room.status==='active');
 const inView=()=>!!(view&&id&&room);
 const eligible=()=>online()&&state?.lv>=50;
 const lobbyMembers=()=>Array.isArray(room?.members)?room.members:[];
+ // V28.7: server-authoritative dungeon damage ranks; never trust client-supplied damage.
+ function dungeonRankingText(){
+   if(!room||!['active','finished'].includes(room.status))return '';
+   const ranked=lobbyMembers().filter(m=>m.accepted).map(m=>({
+     id:String(m.user_id||''),name:String(m.name||'ผู้เล่น'),
+     damage:Math.max(0,Number(m.damage_dealt)||0)
+   })).sort((a,b)=>b.damage-a.damage||a.id.localeCompare(b.id));
+   return ranked.map((m,i)=>`${i+1}. ${m.name} ${fmt(m.damage)}`).join(' · ');
+ }
 const stopAuto=()=>{auto=false;if(attackTimer)clearInterval(attackTimer);attackTimer=null;refreshControls();};
 function error(e){let s=String(e?.message||e||'ผิดพลาด');
  if(/Dungeon cooldown|Level or cooldown restriction|A party member is on cooldown/i.test(s))s='ดันเจียนที่เลือกยังติดคูลดาวน์ 4 ชั่วโมง (อีกดันเจียนเข้าได้ถ้าไม่ติดคูลดาวน์)';
@@ -102,6 +111,7 @@ function slotSkills(){const pool=skills();const slots=Array.isArray(state.autoSk
 function picker(){const list=skills();return '<option value="">⚔️ โจมตีธรรมดา</option>'+list.map(s=>`<option value="${esc(s.id)}" ${selected===s.id?'selected':''}>${esc(s.name)} · MP ${s.mp}</option>`).join('')}
 function refreshControls(){const p=$('amber24DGPanel');if(!p||!inView())return;
  const k=D[room.dungeon]||D.dragon,waiting=room.status==='waiting',active=room.status==='active',done=room.status==='finished',me=myMember(),leader=room.owner_id===uid(),ms=lobbyMembers(),accepted=ms.filter(m=>m.accepted),ready=accepted.filter(m=>m.ready);
+ const ranking=dungeonRankingText();
  const header=`<div class="amber24-dg-head"><b>${esc(k.name)} · ห้อง ${esc(id.slice(0,8))}</b><span>${waiting?'👥 รวมตัว':active?'⚔️ ต่อสู้จริงบนแมพ':'🏆 สำเร็จแล้ว'} · ${accepted.length}/6 คน</span></div>`;
  let inner='';
  if(waiting){inner=`<p class="amber24-hint">สมาชิกยืนอยู่บนฉาก Realtime ด้านบน · ทุกคนต้องกดพร้อมก่อนหัวหน้าเริ่ม</p><div class="amber24-members">${ms.map(m=>`<span>${m.user_id===room.owner_id?'👑 ':''}${esc(m.name||'ผู้เล่น')} ${!m.accepted?'⌛ รอตอบรับ':m.ready?'✅ พร้อม':'🟡 ยังไม่พร้อม'}</span>`).join('')}</div><div class="amber24-row"><button class="goldbtn" data-dg-act="ready">${me?.ready?'↩ ยกเลิกพร้อม':'✅ กดพร้อม'}</button>${leader?'<button data-dg-act="invite">📨 เชิญเพื่อนร่วมปาร์ตี้</button>':''}</div>${leader?`<button class="goldbtn amber24-full" data-dg-act="start" ${!accepted.length||ready.length!==accepted.length||ms.some(m=>!m.accepted)?'disabled':''}>🚀 เริ่มดันเจียน (${ready.length}/${accepted.length} พร้อม)</button>`:''}${showPicker?invitePicker():''}`;}
@@ -110,8 +120,8 @@ function refreshControls(){const p=$('amber24DGPanel');if(!p||!inView())return;
  <div class="amber24-row"><button data-dg-act="potion" ${Number(me?.dg_hp)<=0||Number(state.potHP)<=0?'disabled':''}>🧪 ใช้ยา HP (${fmt(state.potHP)})</button>${Number(me?.dg_hp)<=0?'<button class="goldbtn" data-dg-act="revive">💖 ฟื้นคืนชีพ (รอ 12 วินาที)</button>':''}</div>
  <div class="amber24-row amber24-skill-row"><label><input id="amber24DgAutoSkill" type="checkbox" ${state.autoSkill?'checked':''}> ✨ AUTO Skill</label><button data-dg-act="slots">🎯 จัดช่องสกิล AUTO</button></div>
  <label class="amber24-select">สกิลกดเอง<select id="amber24SkillSelect">${picker()}</select></label>
- <small class="amber24-hint">AUTO ดันเจียนใช้ช่องสกิลชุดเดียวกับแมพปกติ · สกิลที่เรียนแล้วและ MP เพียงพอเท่านั้น · บอส HP และของรางวัลคำนวณโดย Supabase</small>`;}
- else if(done){inner='<b>🏆 ดันเจียนเคลียร์ครบ 3 บอสแล้ว!</b><p class="amber24-hint">⏳ คูลดาวน์ 4 ชั่วโมงเฉพาะ'+esc(k.short)+' · อีกดันเจียนแยกเวลา</p><div class="amber24-cooldown" id="amber24CoolDown">⏳ '+cdText()+'</div><button class="goldbtn amber24-full" data-dg-act="rewards">🎁 เปิดหีบรางวัล</button>'+(rewardsCache?rewardHTML(rewardsCache):'')+'<button class="amber24-exit" data-dg-act="new">🏰 รับรางวัลแล้ว เลือกดันเจียนถัดไป</button>';}
+ <small class="amber24-hint">AUTO ดันเจียนใช้ช่องสกิลชุดเดียวกับแมพปกติ · สกิลที่เรียนแล้วและ MP เพียงพอเท่านั้น · บอส HP และของรางวัลคำนวณโดย Supabase${ranking?' · 🏆 อันดับดาเมจ: '+esc(ranking):''}</small>`;}
+ else if(done){inner='<b>🏆 ดันเจียนเคลียร์ครบ 3 บอสแล้ว!</b><p class="amber24-hint">⏳ คูลดาวน์ 4 ชั่วโมงเฉพาะ'+esc(k.short)+' · อีกดันเจียนแยกเวลา'+(ranking?' · 🏆 อันดับดาเมจ: '+esc(ranking):'')+'</p><div class="amber24-cooldown" id="amber24CoolDown">⏳ '+cdText()+'</div><button class="goldbtn amber24-full" data-dg-act="rewards">🎁 เปิดหีบรางวัล</button>'+(rewardsCache?rewardHTML(rewardsCache):'')+'<button class="amber24-exit" data-dg-act="new">🏰 รับรางวัลแล้ว เลือกดันเจียนถัดไป</button>';}
 
  p.innerHTML=header+inner+`<button class="amber24-exit" data-dg-act="world">↩ ดูแมพปกติ (ห้องดันเจียนยังอยู่)</button>`;
 }
@@ -207,7 +217,8 @@ async function attack(isAuto){if(!inside()||attackBusy||Date.now()-lastAttack<11
   if(!enhancedRpc)out=await rpc('attack',{p_room:id});
   if(!out||!out.room)return;
   const oldBoss=room?.boss_index;applyRoom(out.room,true);lastSync=Date.now();
-  if(sk&&state.mp>=sk.mp){state.mp=Math.max(0,state.mp-sk.mp);window.AMBER_FX?.onAttack?.(sk,out.damage,{name:stageName()});renderTop();save();}
+  if(out.mp_left!=null&&Number.isFinite(Number(out.mp_left))){state.mp=Math.max(0,Number(out.mp_left));renderTop();save();}
+   if(sk&&out.skill_applied===true)window.AMBER_FX?.onAttack?.(sk,out.damage,{name:stageName()});
   popDamage(out.damage); // show numeric damage for skills AND basic hits
   if(view){drawScene();refreshControls();}
   if(oldBoss&&room.boss_index!==oldBoss)announce('🐉 บอสตัวต่อไปปรากฏแล้ว!');
