@@ -1,101 +1,114 @@
-/* 55 AMBERLANDS V29.0 - one MAIN inventory, authenticated read projection.
-   Inventory ownership and quantities come from Supabase RPC, never from client-supplied counts.
-   Existing item actions continue using the existing Supabase-verified RPCs.
-   Does not move, mint or delete any item, and does not change sprites/assets. */
+/* 55 AMBERLANDS V29.1 — restore ALL original art + secure universal market.
+   Keeps the entire legacy inventory rendering stack (pixel icons, ores, pets, wings, gear)
+   untouched; only adds server-verification and a marketplace entry. No items moved locally.
+   Server remains sole authority for inventory, market ownership, rolls, wallets. */
 (()=>{'use strict';
- const $=id=>document.getElementById(id);
- let generation=0;
- const cats=[['potion','🧪 ยาฟื้นฟู'],['bag','📦 ไอเทมทั่วไป / ของดรอป'],['gear','⚔️ อาวุธและอุปกรณ์'],['material','💎 แร่และหินตีบวกทุกชนิด'],['shop','🪽 ปีก / คอสตูม / Item Shop'],['pet','🐶 สัตว์เลี้ยง / อาหาร / ตำรา']];
- const safeNum=x=>Number.isFinite(Number(x))?Math.max(0,Math.floor(Number(x))):0;
- const notifySafe=s=>typeof window.notify==='function'?notify(s):console.info('[AMBER V290]',s);
- function makeItem(it){
-  const el=document.createElement('button');el.type='button';el.className='item amber290-card';
-  const kind=String(it.kind||''),id=String(it.id||'');
-  const icon=document.createElement('div');icon.className='amber290-art';icon.textContent=String(it.icon||({gear:'⚔️',material:'💎',pet:'🐶',shop:'🪽'}[kind]||'📦'));
-  if(kind==='gear'){
-   const g=(state.gear||[]).find(x=>String(x.id)===id);
-   if(g&&window.PX?.items?.gearURL){try{const img=document.createElement('img');img.className='ic l';img.alt='';img.src=window.PX.items.gearURL(g);icon.textContent='';icon.appendChild(img)}catch{}}
-  }
-  const title=document.createElement('small');title.textContent=String(it.name||'ไอเทม')+(kind==='gear'&&safeNum(it.enh)>0?' +'+safeNum(it.enh):'');
-  const qty=document.createElement('em');qty.textContent='×'+safeNum(it.qty);
-  el.append(icon,title,qty);
-  if(it.equipped===true)el.title='✅ กำลังสวมใส่';
-  if(it.boss===true)el.classList.add('amber-boss-rainbow');
-  if(kind==='shop'){el.dataset.am21ShopBag=id;el.classList.add('amber21-shopBagItem')}
-  else if(kind==='pet'){el.dataset.am23Item=id;el.classList.add('amber23-item')}
-  else el.addEventListener('click',()=>{
-   try{
-    if(kind==='gear'){
-      if(!(state.gear||[]).some(g=>String(g.id)===id)){notifySafe('ข้อมูลอุปกรณ์กำลังซิงก์ กรุณาเข้าเกมใหม่');return}
-      if(typeof window.openGear==='function')window.openGear(id);
-    }else if(kind==='bag'){
-      const ix=(state.bag||[]).findIndex(b=>String(b.id)===id);
-      if(ix<0){notifySafe('ข้อมูลกระเป๋ากำลังซิงก์ กรุณาเข้าเกมใหม่');return}
-      if(typeof window.itemClick==='function')window.itemClick(ix);
-    }else if(kind==='potion'){
-      if(window.AMBER_V16?.show)window.AMBER_V16.show('potion',id);
-    }else if(kind==='material'){
-      if(['gw','ga'].includes(id)&&window.AMBER_V16?.show)window.AMBER_V16.show('material',id);
-      else notifySafe('💎 เลือกอุปกรณ์ที่ต้องการตีบวก แล้วใช้แร่จากเมนูอุปกรณ์');
-    }
-   }catch(e){console.warn('[AMBER V290] item action',e);notifySafe('ไม่สามารถเปิดไอเทมนี้ได้')}
-  });
-  return el;
+const $=id=>document.getElementById(id);
+let seq=0,posting=false;
+const notifySafe=s=>typeof window.notify==='function'?window.notify(s):console.info('[AMBER V291]',s);
+const cloud=()=>window.AMBER_CLOUD;
+const online=()=>!!(window.AMBER_V277?.ready?.()&&cloud()?.getClient?.());
+const valid={potion:'ยา',bag:'ของทั่วไป',gear:'อุปกรณ์',material:'แร่/วัสดุ',shop:'ปีก / Item Shop',pet:'สัตว์เลี้ยง / อาหาร'};
+function allItems(){
+ if(!online())return Promise.reject(Error('ต้องล็อกอินและเชื่อม Supabase'));
+ return cloud().getClient().rpc('amber_v290_inventory_manifest').then(({data,error})=>{
+  if(error)throw error;
+  if(!data?.ok||!Array.isArray(data.items))throw Error('INVENTORY_NOT_VERIFIED');
+  return data.items;
+ });
+}
+const isSellable=it=>{
+ if(!it||!Object.prototype.hasOwnProperty.call(valid,it.kind))return false;
+ if(it.equipped===true||!Number.isInteger(+it.qty)||+it.qty<=0)return false;
+ if(it.kind==='material'&&!['gw','ga','ore_fire','ore_ice','ore_prism'].includes(it.id))return false;
+ if(it.kind==='shop' && /^(sun_|moon_)/.test(String(it.sku||'')) &&
+   (!it.expiresAt || Date.parse(it.expiresAt)<=Date.now()))return false;
+ return true;
+};
+function art(it){
+ const host=document.createElement('span');host.style.cssText='display:inline-flex;width:35px;height:35px;align-items:center;justify-content:center;flex:0 0 35px;font-size:26px';
+ if(it.kind==='gear'){
+  const g=(state.gear||[]).find(g=>String(g.id)===String(it.id));
+  if(g&&window.PX?.items?.gearURL){try{const img=document.createElement('img');img.src=PX.items.gearURL(g);img.alt='';img.width=35;img.height=35;host.appendChild(img);return host;}catch(e){console.warn('[V291] gear preview',e)}}
  }
- function draw(holder,items){
-  holder.replaceChildren();
-  const top=document.createElement('p');top.className='hint';top.textContent='🎒 กระเป๋าหลักรวมทุกชนิด · ยืนยันจำนวนจาก Supabase · ไอเทมยังอยู่ที่เดิม ไม่ย้ายซ้ำ';holder.appendChild(top);
-  let count=0;
-  for(const [kind,title] of cats){const group=items.filter(i=>i&&i.kind===kind&&safeNum(i.qty)>0);if(!group.length)continue;
-   count+=group.length;const h=document.createElement('h3');h.textContent=title+' ('+group.length+')';holder.appendChild(h);
-   const grid=document.createElement('div');grid.className='inventory amber290-grid';for(const item of group)grid.appendChild(makeItem(item));holder.appendChild(grid);
-  }
-  if(!count){const p=document.createElement('p');p.className='hint';p.textContent='ยังไม่มีไอเทมในกระเป๋า';holder.appendChild(p)}
+ if(it.kind==='shop' && /^(sun_|moon_)/.test(String(it.sku||''))){
+  const img=document.createElement('img');img.src=String(it.sku).startsWith('sun_')?'./assets/wing_amber.svg':'./assets/wing_violet.svg';img.alt='';img.width=35;img.height=35;host.appendChild(img);return host;
  }
- function addPanel(){
-  const body=$('modalBody');if(!body)return null;
-  const legacy=document.createElement('div');legacy.id='amber290-legacy';
-  while(body.firstChild)legacy.appendChild(body.firstChild);
-  const main=document.createElement('section');main.id='amber290-main';main.className='amber21-bagSection';
-  const loading=document.createElement('p');loading.className='hint';loading.textContent='🔄 กำลังตรวจสอบไอเทมทั้งหมดจาก Supabase…';main.appendChild(loading);
-  body.append(main,legacy);
-  return {main,legacy,body};
+ if(it.kind==='pet'&&it.sku==='dog'){
+  const img=document.createElement('img');img.src='./assets/pet_dog_v23.png';img.alt='';img.width=35;img.height=35;host.appendChild(img);return host;
  }
- const old=window.openInventory;
- if(typeof old!=='function')return;
- window.openInventory=function v290OpenMainInventory(...args){
-  const result=old.apply(this,args);
-  const current=++generation;
-  if(!String($('modalTitle')?.textContent||'').includes('กระเป๋า'))return result;
-  const panel=addPanel();if(!panel)return result;
-  const client=window.AMBER_CLOUD?.getClient?.();
-  if(!window.AMBER_V277?.ready?.()||!client){panel.main.textContent='🔒 ต้องเชื่อมต่อ Supabase เพื่อดูกระเป๋าหลัก';return result}
-  Promise.resolve(client.rpc('amber_v290_inventory_manifest')).then(({data,error})=>{
-   if(current!==generation||!panel.main.isConnected)return;
-   if(error||!data?.ok||!Array.isArray(data.items))throw error||Error('INVALID_INVENTORY_RESPONSE');
-   // NEVER save a server item projection into state or localStorage: only display it.
-   draw(panel.main,data.items);
-   const tools=[...panel.legacy.querySelectorAll('button')].filter(b=>/เลือกขายหลายชนิด/.test(b.textContent||''));
-   if(tools.length){const btn=document.createElement('button');btn.className='goldbtn';btn.textContent='💰 เลือกขายหลายชนิด';btn.onclick=()=>tools[0].click();panel.main.appendChild(btn)}
-   panel.legacy.hidden=true;  // prevent duplicate rows, retain old click handlers when needed
-  }).catch(e=>{
-   if(current!==generation||!panel.main.isConnected)return;
-   console.warn('[AMBER V290] inventory RPC',e);
-   panel.main.textContent='⚠️ โหลดกระเป๋าจาก Supabase ไม่สำเร็จ — แสดงกระเป๋าเดิมชั่วคราว';
-   panel.legacy.hidden=false;
-  });
-  return result;
- };
- const st=document.createElement('style');st.id='amber290-inventory-css';st.textContent=`
-  #amber290-main{margin:6px 0 15px;padding:9px;border:1px solid #886e47;border-radius:9px;background:#111d2b}
-  #amber290-main h3{margin:11px 0 6px;color:#f4d796;font-size:13px}
-  #amber290-main .amber290-grid{display:flex;flex-wrap:wrap;gap:7px}
-  #amber290-main .amber290-card{width:80px;min-width:74px;max-width:calc(33% - 5px);min-height:87px;padding:5px;cursor:pointer}
-  #amber290-main .amber290-art{font-size:24px;min-height:29px}
-  #amber290-main .amber290-art img{width:32px;height:32px;object-fit:contain}
-  #amber290-main .amber290-card small{white-space:normal;overflow-wrap:anywhere;line-height:1.2}
-  #amber290-main .amber290-card em{font-size:11px}
-  #amber290-legacy[hidden]{display:none!important}`;document.head.appendChild(st);
+ const emojis={gw:'🔥',ga:'🛡️',ore_fire:'🔥',ore_ice:'❄️',ore_prism:'🌈',food:'🦴',hp:'🧪',mp:'💧'};
+ host.textContent=emojis[it.id]||emojis[it.sku]||String(it.icon||'📦');return host;
+}
+function rowButton(it){
+ const btn=document.createElement('button');btn.type='button';btn.className='amber291-offer';
+ btn.appendChild(art(it));
+ const content=document.createElement('span');content.style.flex='1';content.style.textAlign='left';
+ const name=document.createElement('b');name.textContent=String(it.name||'ไอเทม')+(it.enh?` +${it.enh}`:'');
+ const info=document.createElement('small');info.style.display='block';info.textContent=valid[it.kind]+' · จำนวน '+Number(it.qty).toLocaleString();
+ content.append(name,info);btn.appendChild(content);btn.onclick=()=>priceForm(it);return btn;
+}
+async function openOffers(){
+ if(posting)return;
+ if(!online()){notifySafe('🔒 ต้องเชื่อม Supabase ก่อนตั้งขาย');return;}
+ try{
+  const all=await allItems(),items=all.filter(isSellable);
+  if(typeof window.openModal!=='function')throw Error('ไม่พบหน้าต่างตลาด');
+  openModal('⚖️ ตั้งขายไอเทมทุกชนิด', '<p class="hint">เลือกไอเทม · Supabase ตรวจกรรมสิทธิ์ จำนวน ราคา และโอนให้ผู้ซื้อจริง</p><div id="amber291Offers"></div><button id="amber291Back">🎒 กลับกระเป๋า</button>');
+  const root=$('amber291Offers');if(!root)return;
+  if(!items.length)root.textContent='ไม่มีไอเทมที่นำมาขายในตลาดได้';
+  else for(const it of items)root.appendChild(rowButton(it));
+  $('amber291Back')?.addEventListener('click',()=>window.openInventory?.());
+ }catch(e){notifySafe('ไม่สามารถอ่านกระเป๋าจากเซิร์ฟเวอร์: '+String(e.message||e).slice(0,105))}
+}
+function priceForm(it){
+ const max=Math.min(9999,(it.kind==='gear'||it.kind==='shop')?1:Math.max(1,Math.floor(Number(it.qty))));
+ openModal('📣 ลงขาย '+String(it.name||'ไอเทม'),'<p class="hint">ราคาต่อชิ้น (Gold) · ของจะถูกพักในตลาดจนกว่าจะขายหรือยกเลิก</p><div id="amber291OfferItem"></div><label>จำนวน<input id="amber291Qty" type="number" min="1" step="1" inputmode="numeric"></label><label>ราคาต่อชิ้น<input id="amber291Price" type="number" min="1" max="10000000" step="1" inputmode="numeric"></label><button class="goldbtn" id="amber291Submit">✅ ยืนยันตั้งขาย</button><button id="amber291Back">ย้อนกลับ</button>');
+ $('amber291Qty').max=String(max);$('amber291Qty').value='1';$('amber291Price').value='1000';
+ $('amber291OfferItem')?.appendChild(rowButton(it));
+ $('amber291Submit')?.addEventListener('click',()=>submit(it,max));
+ $('amber291Back')?.addEventListener('click',openOffers);
+}
+async function submit(it,max){
+ if(posting)return;
+ const qty=Number($('amber291Qty')?.value),price=Number($('amber291Price')?.value);
+ if(!Number.isSafeInteger(qty)||qty<1||qty>max||!Number.isSafeInteger(price)||price<1||price>10000000){notifySafe('จำนวนหรือราคาไม่ถูกต้อง');return;}
+ if(!confirm(`ตั้งขาย ${it.name} ×${qty} ชิ้น ราคา ${price.toLocaleString()} Gold/ชิ้น?`))return;
+ const c=cloud();if(!online()){notifySafe('Supabase ไม่พร้อม');return;}
+ posting=true;
+ try{
+  if(typeof c.beginMarket==='function')await c.beginMarket();
+  try{
+   const {data,error}=await c.getClient().rpc('amber_market_post',{p_kind:it.kind,p_key:String(it.id),p_quantity:qty,p_price:price});
+   if(error)throw error;
+   if(data==null)throw Error('MARKET_POST_UNCONFIRMED');
+   window.AMBER_V19?.onMarketMutation?.('amber_market_post');
+  }finally{if(typeof c.endMarket==='function')await c.endMarket();}
+  notifySafe('✅ Supabase ยืนยันตั้งขายแล้ว');
+  if(window.AMBER_V16?.showMarket)window.AMBER_V16.showMarket();else window.openInventory?.();
+ }catch(e){console.warn('[V291 MARKET]',e);notifySafe('ตั้งขายไม่สำเร็จ: '+String(e.message||e).slice(0,120))}
+ finally{posting=false}
+}
+// IMPORTANT: never wrap or hide existing bag children: their original selectors and images must stay intact.
+const old=window.openInventory;
+if(typeof old!=='function')return;
+window.openInventory=function v291OpenInventory(...args){
+ const result=old.apply(this,args),current=++seq;
+ if(!String($('modalTitle')?.textContent||'').includes('กระเป๋า'))return result;
+ const body=$('modalBody');if(!body)return result;
+ const previous=$('amber291IntegratedMarket');if(previous)previous.remove();
+ const section=document.createElement('section');section.id='amber291IntegratedMarket';
+ const status=document.createElement('small');status.textContent='กำลังตรวจสอบข้อมูลจาก Supabase…';
+ const button=document.createElement('button');button.type='button';button.className='goldbtn';button.textContent='⚖️ ตั้งขายทุกชนิดในตลาด';
+ button.addEventListener('click',openOffers);
+ section.append(status,button);body.appendChild(section);
+ if(!online()){status.textContent='ต้องเชื่อม Supabase เพื่อดูจำนวนล่าสุดและลงขาย';button.disabled=true;return result;}
+ allItems().then(items=>{if(current===seq&&section.isConnected)status.textContent='✅ Supabase ยืนยัน '+items.length+' รายการ · ภาพและปุ่มใช้ไอเทมเดิมครบ';})
+  .catch(e=>{if(current===seq&&section.isConnected){status.textContent='⚠️ ติดต่อ Supabase ไม่สำเร็จ: ใช้กระเป๋าเดิมได้ แต่ยังลงขายไม่ได้';button.disabled=true;}});
+ return result;
+};
+const style=document.createElement('style');style.id='amber291-inventory-restore-css';
+style.textContent='#amber291IntegratedMarket{margin:12px 0;padding:9px;border:1px solid #8f7047;border-radius:9px;display:flex;gap:9px;align-items:center;flex-wrap:wrap}#amber291IntegratedMarket small{flex:1 1 160px}#amber291Offers{display:flex;flex-direction:column;gap:6px;max-height:55vh;overflow-y:auto}#amber291Offers .amber291-offer{width:100%;display:flex;gap:8px;align-items:center;background:#152536;border:1px solid #655636;color:#f7e0b8;padding:7px;border-radius:8px}#amber291OfferItem .amber291-offer{pointer-events:none}#amber291IntegratedMarket button{min-height:36px}';document.head.appendChild(style);
  // Previous enhance UI tried to consume ores locally, bypassing authority.
  // Send any optional ore to the server and consume it only after the confirmed RPC.
  const originalEnhance=window.enhance;
@@ -111,6 +124,7 @@
    if(typeof window.renderBag==='function')window.renderBag();
   }catch(e){console.warn('[AMBER V290] enhance ore',e);notifySafe('Supabase ปฏิเสธการตีบวกแร่: '+String(e.message||e).slice(0,85))}
  };
- window.AMBER_V290=Object.freeze({version:'29.0',manifest:'server',enhancementOre:'server'});
- console.info('[AMBER V29.0] Server-projected unified inventory');
+
+window.AMBER_V290=Object.freeze({version:'29.1',manifest:'server',enhancementOre:'server',mainInventoryArt:'restored',marketKinds:'six'});
+console.info('[AMBER V29.1] Original asset inventory fully restored, server market expanded');
 })();

@@ -22,7 +22,7 @@ const MAT_HELP={
  gw:['เพชรเพลิงมังกร','หินตีบวกอาวุธ','ใช้ตีบวกอาวุธในเมนูอุปกรณ์ (อาวุธ +0 ถึง +10)','มีโอกาสดรอป 0.10% ต่อการกำจัดในช่วงทดสอบ'],
  ga:['ไข่มุกพิทักษ์','หินตีบวกชุด/เกราะ','ใช้ตีบวกอุปกรณ์ที่ไม่ใช่อาวุธในเมนูอุปกรณ์','มีโอกาสดรอป 0.10% ต่อการกำจัดในช่วงทดสอบ']
 };
-const TYPES={potion:'ยา',material:'หินตีบวก',bag:'ไอเทม',gear:'อุปกรณ์'};
+const TYPES={potion:'ยา',material:'หินตีบวก',bag:'ไอเทม',gear:'อุปกรณ์',pet:'สัตว์เลี้ยง/อาหาร',shop:'ปีก/Item Shop'};
 const own=(kind,key)=>{
  if(kind==='potion'){
    if(!['hp','mp'].includes(key))return null;
@@ -75,20 +75,16 @@ function show(kind,key){
  $('amber16GoGear')?.addEventListener('click',()=>openGear(key));
 }
 api.show=show;
-api.npcSell=(kind,key)=>{
+api.npcSell=async(kind,key)=>{
  try{
-  const it=own(kind,key);if(!it||it.equipped)throw new Error('ขายไอเทมนี้ไม่ได้');
-  const count=getQty(it.n),price=it.npc*count;
-  if(!confirm(`ยืนยันขาย ${it.name} ×${count} ให้ NPC รับ ${fmt(price)} Gold?`))return;
-  if(kind==='potion')state[key==='hp'?'potHP':'potMP']-=count;
-  else if(kind==='material')state.mats[key]-=count;
-  else if(kind==='bag'){const o=state.bag.find(x=>x.id===key);o.qty-=count;if(o.qty<=0)state.bag=state.bag.filter(x=>x!==o)}
-  else if(kind==='gear'){state.gear=state.gear.filter(g=>g.id!==key);if(window.AMB?.ap)window.AMB.ap()}
-  state.gold+=price;
-  log(`💰 ขาย ${it.name} ×${count} ให้ NPC ได้ ${fmt(price)} Gold`,'good');
-  render();save();
-  const next=own(kind,key);if(next?.n>0)show(kind,key);else openInventory();
- }catch(e){notify(e.message)}
+  const it=own(kind,key);if(!it||it.equipped)throw new Error('ถอดอุปกรณ์ก่อนขาย');
+  const q=getQty(it.n);
+  if(!window.AMBER_V277?.ready?.())throw new Error('ต้องเชื่อม Supabase ก่อนขาย');
+  if(!confirm('ยืนยันขาย '+it.name+' ×'+q+' ให้ NPC ผ่าน Supabase?'))return;
+  await window.AMBER_V277.invoke('amber_v278_npc_sell',{p_kind:kind,p_key:key,p_qty:q});
+  notify('✅ Supabase ยืนยันการขายและรับ Gold');
+  if(own(kind,key)?.n>0)show(kind,key);else openInventory();
+ }catch(e){notify('ขายไม่สำเร็จ: '+String(e.message||e).slice(0,120));}
 };
 const cloud=()=>window.AMBER_CLOUD;
 async function tx(name,params){

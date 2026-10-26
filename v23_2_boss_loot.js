@@ -38,11 +38,9 @@ const oldOpenGear=window.openGear;
 window.openGear=function(id,msg){oldOpenGear(id,msg);const g=(state.gear||[]).find(x=>String(x.id)===String(id));oreSelector(g);if(isBoss(g)){$('modalBody')?.classList.add('amber232-boss-modal')}};
 /* The original enhancement logic remains authoritative for gold, base stone costs,
  * level drops on failure and effects. Add a bounded ore bonus only at the success roll. */
-function adjustEnhanceChance(base,g){const o=ORES[selectedOre];if(!o||!availableFor(g,selectedOre)||Number(base)>=100){return base}
- if(count(selectedOre)<1){selectedOre='';return base}
- oreMats()[selectedOre]=count(selectedOre)-1;
- if(typeof log==='function')log(`💎 ใช้ ${o.name} ×1 เพิ่มโอกาสสำเร็จ +${o.bonus}%`,'good');
- return Math.min(95,Number(base)+o.bonus)
+function adjustEnhanceChance(base,g){
+ // V29.1: presentation only. Server RPC handles stock, bonus, random roll and results.
+ return Number(base)||0;
 }
 window.AMBER_BOSS_ORES={adjustEnhanceChance,types:ORES,isBoss,refresh:stampBag};
 // Wrapper redraws can replace cards; ensure any boss gear still gets rainbow styling.
