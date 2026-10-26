@@ -78,9 +78,12 @@ function labels() {
 const chipHTML = () => { const st = ST(); if (!st) return ''; const rb = reb(); return `<span class="px28-chip"><img src="${ico('crown')}" alt="">Lv.<b>${esc(st.lv)}</b></span><span class="px28-chip rb"><img src="${ico('loop')}" alt="">เกิดใหม่ <b>${rb}</b>/10</span>`; };
 const quickHTML = () => { const st = ST(); if (!st) return ''; return `<button type="button" data-px28="php" class="px28-q hp"><img src="${ico('potion')}" alt=""><b>${fmt(st.potHP | 0)}</b></button><button type="button" data-px28="pmp" class="px28-q mp"><img src="${ico('potionB')}" alt=""><b>${fmt(st.potMP | 0)}</b></button><button type="button" data-px28="pauto" class="px28-q auto${st.autopot ? ' on' : ''}"><img src="${ico('bolt')}" alt="">AUTO ยา <b>${st.autopot ? 'ON' : 'OFF'}</b></button>`; };
 function paintHud() {
-  const st = ST(), scene = $('scene'); if (!st || !scene) return;
-  let h = $('px28Hud'); if (!h) { h = document.createElement('div'); h.id = 'px28Hud'; scene.insertAdjacentElement('afterend', h); }
-  const html = `<div class="px28-hl">${chipHTML()}</div><div class="px28-hq">${quickHTML()}</div>`; if (h.dataset.s !== html) { h.dataset.s = html; h.innerHTML = html; }
+  const st = ST(), info = document.querySelector('.top .statsline'); if (!st || !info) return;
+  let h = $('px28Hud'); if (!h) { h = document.createElement('div'); h.id = 'px28Hud'; }
+  if (h.parentNode !== info) info.appendChild(h);
+  // The original Lv/Rebirth and potion bar below the scene were redundant.
+  // Keep real potion/AUTO buttons, but render ONE compact bar inside the profile.
+  const html = `<div class="px28-hq">${quickHTML()}</div>`; if (h.dataset.s !== html) { h.dataset.s = html; h.innerHTML = html; }
   const dg = document.querySelector('#modalBody .amber23-dungeonBoss'); if (dg) { let d = dg.querySelector('.px28-dg'); const hh = `<div class="px28-dg">${chipHTML()}<span class="sp"></span>${quickHTML()}</div>`; if (!d) dg.insertAdjacentHTML('afterbegin', hh); else if (d.outerHTML !== hh) { const n = document.createElement('div'); n.innerHTML = hh; d.replaceWith(n.firstChild); } }
 }
 document.addEventListener('click', e => {
