@@ -7,8 +7,9 @@ out=root/'_site'
 if out.exists():shutil.rmtree(out)
 out.mkdir()
 for file in root.iterdir():
-    if file.is_file() and (file.suffix in {'.html','.js','.css'} or file.name in {'.nojekyll','CNAME'}):
+    if file.is_file() and (file.suffix in {'.html','.js','.css','.webmanifest'} or file.name in {'.nojekyll','CNAME'}):
         shutil.copy2(file,out/file.name)
+if (root/'icons').is_dir(): shutil.copytree(root/'icons',out/'icons')
 if (root/'assets').is_dir():
     shutil.copytree(root/'assets',out/'assets')
 assert (out/'index.html').is_file(), 'Missing site index.html'
