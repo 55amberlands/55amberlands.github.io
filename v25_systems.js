@@ -135,7 +135,7 @@ function ckState() {
 }
 function doCheckin() {
   if (!online() || !window.AMBER_V27) { safe(() => notify('เช็กอินต้องเชื่อม Supabase V27 ก่อน')); return; }
-  void window.AMBER_V27.checkin();
+  return window.AMBER_V27.checkin();
 }
 
 /* ------------------------------------------------------------------ 2 daily missions */
@@ -411,13 +411,15 @@ async function openHub(tab) {
   const b2 = $('px25Body'); if (b2) b2.innerHTML = html; paintDot();
 }
 function tabCheckin() {
+  // AMBER297_CHECKIN_WAIT: never present an RPC-loading failure as already claimed.
+  if(online() && !window.AMBER_V27?.getState()?.today_th) return '<p class="px25-warn">⚠️ ยังโหลดสถานะเช็กอินจาก Supabase ไม่สำเร็จ ไม่มีการหักสิทธิ์รับรางวัล</p><button data-v25="checkinretry">🔄 ตรวจสถานะอีกครั้ง</button>';
   const { c, can, broken } = ckState(), day = broken || c.day >= 7 ? 0 : c.day;
   return `<p class="px25-hint">เช็กอินทุกวันต่อเนื่อง 7 วัน — รางวัลเป็นแร่ตีบวก วันที่ 7 ได้หีบแร่ใหญ่ ${broken ? '<b style="color:#ff8a8a">(ขาดวัน — เริ่มนับใหม่)</b>' : ''}</p><div class="px25-days">${CK_REWARDS.map((r, i) => `<div class="px25-day${i < day ? ' got' : ''}${i === day && can ? ' now' : ''}"><small>วัน ${i + 1}</small><img src="${PX.ui.rewardTile(r.ic, r.rain ? 'rain' : 'p', 44)}" alt=""><em>${grantText(r) || ''}${r.hp ? ' ยา×' + r.hp : ''}</em>${i < day ? '<span>✅</span>' : ''}</div>`).join('')}</div><button class="goldbtn px25-big" data-v25="checkin" ${can ? '' : 'disabled'}>${can ? '📅 เช็กอินวันนี้' : '✅ เช็กอินแล้ววันนี้ — กลับมาพรุ่งนี้'}</button>`;
 }
 async function tabDaily() {
   if (!online()) return '<p class="px25-warn">🔒 ต้องเชื่อม Supabase เพื่อดูหลักฐานเควสต์และรับรางวัล</p>';
   try { await missionRefresh(); }
-  catch(e) { console.error('[V27.9 mission load]',e); return '<p class="px25-warn">❌ โหลดหลักฐานเควสต์จากเซิร์ฟเวอร์ไม่สำเร็จ กรุณาลองใหม่</p>'; }
+  catch(e) { console.error('[V27.9 mission load]',e); return '<p class="px25-warn">❌ โหลดหลักฐานเควสต์จากเซิร์ฟเวอร์ไม่สำเร็จ ยังไม่สามารถยืนยันสิทธิ์รับรางวัล</p><button data-v25="dailyretry">🔄 โหลดสถานะเควสต์อีกครั้ง</button>'; }
   const v = V(); const all = v.daily.m.every(m => m.claimed);
   return `<p class="px25-hint">ภารกิจรีเซ็ตทุกเที่ยงคืน · ทำครบ 3 อย่างได้หีบโบนัส</p><p class="px25-hint">🛡️ นับเฉพาะการฆ่ามอน ใช้สกิล ตีบวก และเรดที่ Supabase บันทึกผลจริง · จำนวนที่เคยนับเฉพาะในมือถือจะไม่นำมาคิด</p><div class="px25-ms">${v.daily.m.map((m, i) => { const p = POOL.find(x => x.id === m.id), r = p.r(S().lv); const pct = Math.round(100 * m.have / m.need); return `<div class="px25-m${m.claimed ? ' got' : ''}"><b>${esc(p.t(S().lv))}</b><div class="px25-pb"><i style="width:${pct}%"></i><span>${m.have}/${m.need}</span></div><small>${grantText(r)}${r.hp ? ' · ยา HP×' + r.hp : ''}${r.mp ? ' · ยา MP×' + r.mp : ''}</small>${m.claimed ? '<span>✅</span>' : `<button data-v25="mclaim" data-i="${i}" ${m.have >= m.need ? '' : 'disabled'}>รับ</button>`}</div>`; }).join('')}</div><div class="px25-m ${v.daily.bonus ? 'got' : ''}"><b>🎁 หีบโบนัสรายวัน</b><small>${grantText({ gems: 40, ore_prism: 1, ga: 3, gw: 2 })}</small>${v.daily.bonus ? '<span>✅</span>' : `<button class="goldbtn" data-v25="dbonus" ${all ? '' : 'disabled'}>เปิดหีบ</button>`}</div>`;
 }
@@ -470,7 +472,7 @@ new MutationObserver(() => safe(gearShare)).observe(document.body, { childList: 
 document.addEventListener('click', e => {
   const tb = e.target.closest('[data-v25tab]'); if (tb) { openHub(tb.dataset.v25tab); return; }
   const b = e.target.closest('[data-v25]'); if (!b || b.disabled) return; const a = b.dataset.v25;
-  if (a === 'checkin') { doCheckin(); openHub('checkin'); } else if (a === 'mclaim') { void claimMission(+b.dataset.i).then(()=>openHub('daily')); } else if (a === 'dbonus') { void claimDailyBonus().then(()=>openHub('daily')); }
+  if (a === 'checkinretry') { void openHub('checkin'); } else if (a === 'dailyretry') { void openHub('daily'); } else if (a === 'checkin') { b.disabled=true; void (async()=>{try{await doCheckin();}catch(err){console.error('[V297 checkin]',err);}finally{if($('px25Body')){try{await openHub('checkin');}catch(err){console.error('[V29.7 checkin view]',err);}}}})(); } else if (a === 'mclaim') { void claimMission(+b.dataset.i).then(()=>openHub('daily')); } else if (a === 'dbonus') { void claimDailyBonus().then(()=>openHub('daily')); }
   else if (a === 'wbjoin') { if (window.AMBER_V26) { closeHub(); window.AMBER_V26.openArena(false); } else wbJoin(); } else if (a === 'wbprac') { closeHub(); window.AMBER_V26 && window.AMBER_V26.openArena(true); } else if (a === 'wbclaim') { window.AMBER_V273?.claimLast?.(); } else if (a === 'rebirth') doRebirth();
   else if (a === 'title') { V().titles.active = b.dataset.id; commit(); decorateScene(); openHub('titles'); } else if (a === 'titleauto') { V().titles.active = 'auto'; commit(); openHub('titles'); }
   else if (a === 'sharechar') shareCard(null); else if (a === 'shareg') shareCard((S().gear || []).find(g => String(g.id) === b.dataset.id));

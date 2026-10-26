@@ -219,14 +219,14 @@ async function attack(isAuto){if(!inside()||attackBusy||Date.now()-lastAttack<11
   const oldBoss=room?.boss_index;applyRoom(out.room,true);lastSync=Date.now();
   if(out.mp_left!=null&&Number.isFinite(Number(out.mp_left))){state.mp=Math.max(0,Number(out.mp_left));renderTop();save();}
    if(sk&&out.skill_applied===true)window.AMBER_FX?.onAttack?.(sk,out.damage,{name:stageName()});
-  popDamage(out.hit===false?'MISS':out.damage); // server-confirmed miss, no fake damage
+  popDamage(out.hit===false?'MISS':out.damage,out.hit!==false&&out.crit===true); // AMBER297_DUNGEON_CRIT: server-confirmed flags only
   if(view){drawScene();refreshControls();}
   if(oldBoss&&room.boss_index!==oldBoss)announce('🐉 บอสตัวต่อไปปรากฏแล้ว!');
   if(room.status==='finished'){stopAuto();announce('🏆 จบดันเจียน! กดเปิดหีบรางวัล');signal('finish');}
  }catch(e){if(/cooldown|last_attack/i.test(String(e?.message||'')))return;error(e);if(/not active|not ready/i.test(String(e?.message||''))){stopAuto();sync(true)}}
  finally{attackBusy=false;}
 }
-function popDamage(n){const sc=$('scene');if(!sc||!inView())return;const d=document.createElement('span');d.className='amber24-damage';d.textContent=n==='MISS'?'MISS':'-'+fmt(n);sc.appendChild(d);setTimeout(()=>d.remove(),900)}
+function popDamage(n,isCrit=false){const sc=$('scene');if(!sc||!inView())return;const d=document.createElement('span');d.className='amber24-damage'+(isCrit?' amber297-crit':'');d.textContent=n==='MISS'?'MISS':isCrit?'✦ CRITICAL! ✦ '+fmt(n):'-'+fmt(n);sc.appendChild(d);setTimeout(()=>d.remove(),1100)}
 function rewardHTML(rewards){const slots={S:'🥋 เสื้อบอส',G:'🥊 ถุงมือบอส',B:'👢 รองเท้าบอส',R:'💍 แหวนบอส'};
 return `<div class="amber24-rewards">${rewards.map(r=>{const a=r.reward||{},extras=Array.isArray(a.gear_drops)?a.gear_drops:[];
 const gear=[...(a.weapon?[`⚔️ อาวุธบอส ${esc(a.weapon_class||'')} ${a.best?'🌈 ออปเทพ 0.10%':'🌈'}`]:[]),...extras.map(g=>`${slots[g.slot]||'🎁 อุปกรณ์บอส'} ${g.best?'🌈 ออปเทพ 0.10%':'🌈'}`)];
@@ -318,6 +318,7 @@ const st=document.createElement('style');st.textContent=`
 .amber24-ready{display:inline-block;font-size:10px;padding:2px 5px;border-radius:6px;background:#623824;border:1px solid #a56750}.amber24-ready.yes{background:#135339;border-color:#83d79d;color:#bbffd0}
 .amber24-dungeon-scene .mobScene{right:6%!important;bottom:40%!important;z-index:4!important}.amber24-dungeon-scene .mobScene img{width:min(27vw,130px)!important;height:min(27vw,130px)!important}
 .amber24-dungeon-scene .scenetitle{max-width:86%;font-size:12px;line-height:1.45}.amber24-hide-world-foot{display:none!important}
+.amber24-damage.amber297-crit{font-size:25px;color:#fff2af;background:linear-gradient(130deg,#4d2b0d,#a97114 60%,#492506);border:2px solid #ffe088;border-radius:9px;padding:5px 8px;box-shadow:0 0 17px #ffcc63c7;white-space:nowrap;z-index:55;text-shadow:1px 2px 2px #1c0e06}
 .amber24-damage{position:absolute;right:14%;top:29%;font-size:25px;font-weight:1000;color:#ffe67a;text-shadow:2px 2px 1px #6b1213,0 0 10px #111;z-index:30;pointer-events:none;animation:pop .85s ease-out forwards}
 .amber24-rewards{display:grid;gap:7px;margin-top:10px}.amber24-rewards>div{display:grid;gap:4px;border:1px solid #59627a;background:#1b3044;padding:9px;border-radius:8px}.amber24-rewards small{color:#c1d6e1}
 `;document.head.appendChild(st);

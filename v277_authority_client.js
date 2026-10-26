@@ -66,16 +66,43 @@ window.tick=async function v283ServerTick(){
  }
  try{
    const r=await invoke(lastAuto?'amber_v283_auto_attack':'amber_v277_attack',params,{silent:true});
+    // AMBER298_BOSS_LOCK — server-confirmed response; never mint boss XP/Gold in the client.
+    if(r.monster_id && String(r.monster_id)!==String(m.id)){
+      if(state.auto && typeof stop==='function')stop();
+      tell('⚠️ เป้าหมายฝั่งเซิร์ฟเวอร์ไม่ตรง กรุณาเลือกบอสใหม่');return;
+    }
+    if(m.boss && r.boss_respawning===true){
+      currentHp=0;
+      window.AMBER_V298?.markDead?.(m.id,r.respawn_at);
+      if(state.auto && typeof stop==='function')stop();
+      tell('🔒 '+m.name+' ถูกกำจัดแล้ว ต้องรอเกิดใหม่จึงจะโจมตีและรับรางวัลได้');
+      renderScene();return;
+    }
    autoErrorCount=0;autoRetryAfter=0;
    currentHp=Number(r.monster_hp??m.hp);
    if(Number(state.lv)>oldLevel)levelNotice(oldLevel);
    if(Number(r.damage)>0){
      showDamage(Number(r.damage));
+     // AMBER297_MAP_CRIT: only style damage after the authoritative server reports crit=true.
+     if(r.crit===true){
+       const sc=document.getElementById('scene');
+       const pops=sc?.querySelectorAll('.damage');
+       const last=pops?.[pops.length-1];
+       if(last){
+         last.textContent='✦ CRITICAL! ✦ '+Math.round(Number(r.damage)).toLocaleString('th-TH');
+         last.style.cssText+=';font-size:24px;font-weight:1000;color:#fff1a8;background:linear-gradient(130deg,#58340d,#9c6516,#482609);border:2px solid #ffda79;border-radius:8px;padding:4px 8px;box-shadow:0 0 14px #ffcc66;white-space:nowrap;text-shadow:1px 2px 2px #1a0b04;z-index:55;';
+       }
+     }
      if(picked)window.AMBER_FX?.onAttack?.(picked,Number(r.damage),m);
      else window.AMBER_FX?.onBasicHit?.(Number(r.damage),m,{crit:!!r.crit});
    }
    if(r.auto_hp_used||r.auto_mp_used)log('🧪 AUTO ยา: '+[r.auto_hp_used?'HP':'',r.auto_mp_used?'MP':''].filter(Boolean).join(' + '),'good');
    if(r.killed){
+      if(m.boss){
+        window.AMBER_V298?.markDead?.(m.id,r.respawn_at);
+        currentHp=0;
+        if(state.auto && typeof stop==='function')stop();
+      }
      log('🛡️ Supabase ยืนยันกำจัด '+m.name+' +'+r.reward_exp+' EXP +'+r.reward_gold+' Gold','good');
      if(r.drop_name)log('🎁 ดรอป: '+r.drop_name+' (ยืนยันบนเซิร์ฟเวอร์)','loot');
    }

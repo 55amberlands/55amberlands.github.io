@@ -57,39 +57,39 @@
     invalid_code: 'รูปแบบรหัสไม่ถูกต้อง'
   }[code] || String(code || 'เซิร์ฟเวอร์ยังไม่อนุมัติรางวัล'));
 
+  // AMBER297_DAILY_CLAIM: atomic reward RPCs do not depend on UI-only visual saves.
+  // The backend already locks the character and grants rewards idempotently.
   async function claimRpc(name, params, success) {
-    if (!ready()) { warn('ต้องล็อกอิน Google และโหลดตัวละครให้เสร็จก่อน'); return {ok:false, reason:'login_required'}; }
-    if (busy) { warn('กำลังตรวจรายการก่อนหน้า'); return {ok:false, reason:'busy'}; }
+    if (!ready()) { warn('ต้องล็อกอินและโหลดตัวละครจาก Supabase ให้เสร็จก่อน'); return {ok:false,reason:'login_required'}; }
+    if (busy) { warn('กำลังตรวจรายการก่อนหน้า'); return {ok:false,reason:'busy'}; }
     busy = true;
-    let locked = false;
     try {
-      // The live game autosaves every 15 seconds. Reuse its existing market mutex
-      // so an older browser save cannot immediately erase a server-granted wallet.
-      await cloud().beginMarket();
-      locked = true;
-      const { data, error } = await cloud().getClient().rpc(name, params || {});
-      if (error) throw error;
-      if (data?.ok !== true) { warn(reason(data?.reason)); return {ok:false, reason:data?.reason || 'rejected'}; }
-      // Pull server wallet AFTER the RPC transaction. endMarket also unlocks autosave.
-      await cloud().endMarket();
-      locked = false;
-      await syncState(true);
-      if (success) await success(data);
-      v25()?.refresh();
-      warn('ยืนยันจากเซิร์ฟเวอร์แล้ว' + (data.reward ? ' · ' + formatReward(data.reward) : ''));
-      return {ok:true, data};
-    } catch (e) {
-      console.error('[V27 claim]', name, e);
-      warn('ทำรายการไม่สำเร็จ: ' + (e?.message || String(e)));
-      return {ok:false, reason:'rpc_error'};
-    } finally {
-      if (locked) { try { await cloud().endMarket(); } catch (e) { console.error('[V27 unlock]', e); } }
-      busy = false;
-    }
+      const {data,error} = await cloud().getClient().rpc(name, params || {});
+      if(error) throw error;
+      if(data?.ok !== true){
+        try { await syncState(true); } catch (e) { console.warn('[V29.7 claim status]',e); }
+        warn(reason(data?.reason));
+        return {ok:false,reason:data?.reason || 'rejected'};
+      }
+      // RPC succeeded: do NOT report failure just because visual refresh fails afterwards.
+      try { await cloud().refreshMarketEconomy(); }
+      catch(e) { console.warn('[V29.7 wallet refresh]',e); warn('รับรางวัลสำเร็จแล้ว แต่กระเป๋ายังไม่รีเฟรช ลองเปิดเกมใหม่'); }
+      try { await syncState(true); }
+      catch(e) { console.warn('[V29.7 event refresh]',e); }
+      try { if(success) await success(data); }
+      catch(e) { console.warn('[V29.7 event UI refresh]',e); }
+      try { v25()?.refresh(); } catch(e) { console.warn('[V29.7 refresh]',e); }
+      warn('รับรางวัลสำเร็จแล้วจากเซิร์ฟเวอร์' + (data.reward ? ' · ' + formatReward(data.reward) : ''));
+      return {ok:true,data};
+    } catch(e) {
+      console.error('[V29.7 claim]',name,e);
+      warn('รับรางวัลไม่สำเร็จ: '+(e?.message||String(e)));
+      return {ok:false,reason:'rpc_error'};
+    } finally { busy=false; }
   }
 
   async function checkin() {
-    await claimRpc('amber_ac_checkin', {}, async () => {
+    return await claimRpc('amber_ac_checkin', {}, async () => {
       // Re-sync with the authoritative server day; do not apply grant() locally.
       await v25()?.open('checkin');
     });

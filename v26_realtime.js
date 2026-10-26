@@ -269,7 +269,7 @@ function paintArena(force) {
 }
 function popDmg(id, val, crit) {
   const el = document.querySelector(`[data-dm="${CSS.escape(id)}"]`); if (el) { el.textContent = '-' + fmt(val); el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
-  const fx = $('px26Fx'); if (fx) { const s = document.createElement('span'); s.className = 'px26-bd' + (crit ? ' crit' : ''); s.textContent = fmt(val); s.style.left = (15 + Math.random() * 70) + '%'; fx.appendChild(s); setTimeout(() => s.remove(), 900); }
+  const fx = $('px26Fx'); if (fx) { const s = document.createElement('span'); s.className = 'px26-bd' + (crit ? ' crit' : ''); s.textContent = crit ? '✦ CRITICAL! ✦ ' + fmt(val) : fmt(val); s.style.left = (15 + Math.random() * 70) + '%'; fx.appendChild(s); setTimeout(() => s.remove(), 900); }
   const bi = $('px26Boss'); if (bi) { bi.classList.add('hit'); setTimeout(() => bi.classList.remove('hit'), 90); }
 }
 function paintVitals() {
@@ -300,7 +300,7 @@ async function serverArenaStep(doAttack) {
       ARENA.server = {...ARENA.server,...s};
       if (s.my_damage != null) ARENA.me.d = s.my_damage;
       if (s.hit_damage>0) {
-        popDmg(ARENA.me.id,s.hit_damage,!!s.used_skill);
+        popDmg(ARENA.me.id,s.hit_damage,s.crit === true); // AMBER297_WORLDBOSS_CRIT: server flag only
         if (s.used_skill) safe(() => {
           const known = typeof SKILLS !== 'undefined' ? SKILLS.filter(sk => ST()?.learned?.includes(sk.id)) : [];
           const sk = window.AMBER_V19?.pickSkill?.(known) || known[0];
@@ -474,7 +474,7 @@ const css = document.createElement('style'); css.textContent = `
 .px26-top{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:linear-gradient(#000c,#0000)}
 .px26-boss{text-align:center;padding:0 12px}.px26-bn{font-weight:800;font-size:18px;text-shadow:0 2px 4px #000}.px26-bbar{position:relative;max-width:560px;height:20px;margin:4px auto;background:#2a0a14;border:2px solid #ffd24a;border-radius:10px;overflow:hidden}.px26-bbar i{position:absolute;left:0;top:0;bottom:0;width:100%;background:linear-gradient(90deg,#c01818,#ff6a2a,#ffd24a);transition:width .9s}.px26-bbar span{position:relative;font:700 11px system-ui;line-height:16px;text-shadow:0 1px 2px #000}
 .px26-bimg{position:relative;height:min(34vh,260px);display:flex;justify-content:center;align-items:flex-end}.px26-bimg img{height:100%;max-width:90%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 10px 8px #000c);background:none!important;border-radius:0!important}.px26-bimg img.hit{filter:brightness(2.2) saturate(.5) drop-shadow(0 10px 8px #000c)}
-#px26Fx{position:absolute;inset:0;pointer-events:none}.px26-bd{position:absolute;bottom:30%;font:800 20px system-ui;color:#ffe9a8;text-shadow:0 0 4px #000,2px 2px 0 #b00;animation:px26bd .9s ease-out forwards}.px26-bd.crit{font-size:30px;color:#ff7a2a}@keyframes px26bd{to{transform:translateY(-90px);opacity:0}}
+#px26Fx{position:absolute;inset:0;pointer-events:none}.px26-bd{position:absolute;bottom:30%;font:800 20px system-ui;color:#ffe9a8;text-shadow:0 0 4px #000,2px 2px 0 #b00;animation:px26bd .9s ease-out forwards}.px26-bd.crit{font-size:25px;font-weight:1000;color:#fff3b2;background:linear-gradient(130deg,#54330d,#a86d17 55%,#43260b);border:2px solid #ffe18a;border-radius:8px;padding:5px 9px;box-shadow:0 0 15px #ffd54daa,inset 0 0 8px #ffe18150;white-space:nowrap;z-index:50;text-shadow:1px 2px 2px #1d1003}@keyframes px26bd{to{transform:translateY(-90px);opacity:0}}
 .px26-field{flex:1;overflow:auto;display:flex;flex-wrap:wrap;align-content:flex-end;justify-content:center;gap:8px;padding:6px 8px 4px}.px26-grp{border:1px solid color-mix(in srgb,var(--c) 70%,transparent);background:#0008;border-radius:10px;padding:2px 6px 4px}.px26-grp>b{display:block;font-size:11px;color:var(--c)}.px26-grp .rw{display:flex;gap:2px;flex-wrap:wrap;justify-content:center;max-width:calc(var(--sz)*4.2)}
 .px26-ap{position:relative;width:var(--sz);text-align:center}.px26-ap .px26-h{max-height:var(--sz);max-width:var(--sz);display:block;margin:0 auto}.px26-ap small{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px #000}.px26-ap.me small{color:#ffd24a;font-weight:700}.px26-ap .dm{position:absolute;left:50%;top:-6px;transform:translateX(-50%);font:800 11px system-ui;font-style:normal;color:#fff;text-shadow:0 0 3px #000,1px 1px 0 #c00;opacity:0}.px26-ap .dm.pop{animation:px26up 1s ease-out}.px26-ap .px26-aura{width:150%}
 .px26-ap .px26-h.atk{animation:px26atk .6s steps(2) infinite}@keyframes px26atk{50%{transform:translateY(-4px)}}
