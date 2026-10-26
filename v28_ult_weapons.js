@@ -74,7 +74,14 @@ const DEFS = {
   'จอมเวท': { id: 'ult_staff', name: '⚡ คทาเทพีอัสนีพิภพ [ตำนานบอสโลก]', short: 'คทาเทพีอัสนีพิภพ', en: 'Tempest Goddess Staff', job: 'จอมเวท', stat: 'INT', title: 'จอมเวทอัสนีนิรันดร์' }
 };
 const RE = /ตำนานบอสโลก/;
-const isUlt = g => !!g && (g.ult === true || RE.test(String(g.name || g.w || '')));
+// V30.9: world-boss legendary weapons only. V30.8 dungeon test drops were
+// mistakenly given ult:true; that flag alone is NOT proof of world-boss type.
+// Armor and admin-test drops must use regular slot-specific PX gear icons.
+const isUlt = g => !!g &&
+  (g.slot == null || g.slot === 'W') &&
+  g.admin_test !== true &&
+  (/^ult_(?:sword|fist|bow|staff)_[a-z0-9]+$/i.test(String(g.id || '')) ||
+   (g.ult === true && RE.test(String(g.name || g.w || ''))));
 
 /* weaponSpec: ult weapons get {ult:1, tier:3, theme:'ult'} */
 const ws0 = PX.weaponSpec;
