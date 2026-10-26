@@ -172,11 +172,6 @@ function pickBoss() {
   const bs = (typeof MONS !== 'undefined' ? MONS : []).filter(m => m.boss && PX.creatures.TABLE[m.name]); if (!bs.length) return null;
   const day = Math.floor(Date.now() / 86400000); return bs[day % bs.length];
 }
-function pickBossId(id) {
- try { const b=PX.worldBosses.get(id);if(b) return {name:b.name,lv:b.lv,boss:true,map:'worldboss',scene:b.scene,
- wb28:b.id,col:b.col,element:b.element,title:b.title,hp28:b.hp,atk28:b.atk}; }
- catch(e) {console.warn('[V302 boss asset]',e)}return pickBoss();
-}
 function myRow() {
   const st = ST(), c = safe(() => window.AMBER_V12.combat(), { atk: 40, crit: .1 }), wi = safe(() => window.AMBER_V12.weaponInfo(), null) || {};
   return { id: myId(), n: st.name, lv: st.lv, job: st.job, g: st.gender || 'male', pid: window.AMBER_MY_PID || myId(), atk: c.atk, crit: c.crit || .1, w: { w: wi.name || '', wt: wi.cls || '', wr: wi.rar | 0, we: wi.enh | 0, wl: wi.lv | 0 }, d: ARENA.me ? ARENA.me.d : 0, j: ARENA.me ? ARENA.me.j : Date.now(), ttl: safe(() => V25().activeTitleId(), ''), seen: Date.now(), me: true };
@@ -200,21 +195,19 @@ function startBots() {
   let i = 0; groups.forEach(([k, n], gi) => { for (let a = 0; a < n; a++, i++) ARENA.bots.push({ id: 'bot' + i, bot: true, n: FN[i % FN.length], lv: Math.max(20, st.lv + (i % 5) - 2), job: FJ[i % 4], g: i % 2 ? 'female' : 'male', pid: k, atk: Math.max(80, (safe(() => window.AMBER_V12.combat().atk, 100)) * (0.7 + (i % 5) * .15)), crit: .12, w: { w: 'ดาบกล้า', wt: FJ[i % 4], wr: i % 4, we: (i * 2) % 11, wl: 30 }, d: 0, j: now + gi * 10, ttl: i === 1 ? 'set_prism' : i === 5 ? 'set_fire' : '', seen: now, prev: 0 }); });
 }
 function hit(p) { const crit = Math.random() < (p.crit || .1); const base = p.atk * (0.8 + Math.random() * .4); return Math.round(base * (crit ? 1.9 : 1)); }
-const API=()=>ARENA.api || window.AMBER_V273;
-async function openArena(practice,opt) {
-  opt=opt||{};
+async function openArena(practice) {
   const w = safe(() => V25().wbWindow(), { open: false });
   if (!practice && !w.open) practice = true;
   safe(() => closeModal());
   if (ARENA.on) return;
   const real = !practice;
-  if (real && !(opt.api || window.AMBER_V273)?.ready?.()) {
+  if (real && !window.AMBER_V273?.ready?.()) {
     safe(() => notify('🛡️ บอสจริงต้องล็อกอินและติดตั้ง Supabase V27.3 ก่อน (กดซ้อมได้)')); return;
   }
   const st = ST() || {};
   Object.assign(ARENA, { on: true, practice: !!practice, simulated: !!practice,
-    api:opt.api||null, serverMode: real, server: null, serverBusy: false, claiming: false, me: null,
-    ev: real ? eventKey() : 'prac' + Date.now(), boss: (opt.bossId ? pickBossId(opt.bossId):pickBoss()), roster: {}, bots: [],
+    serverMode: real, server: null, serverBusy: false, claiming: false, me: null,
+    ev: real ? eventKey() : 'prac' + Date.now(), boss: pickBoss(), roster: {}, bots: [],
     t0: Date.now(), done: false, tick: 0, hb: 0, manual: false,
     autoBot: true, autoSkill: st.autoSkill !== false, autoPotion: st.autopot !== false,
     testMaxHP: safe(() => maxHp(),500), testMaxMP: safe(() => maxMp(),120),
@@ -223,7 +216,7 @@ async function openArena(practice,opt) {
   if (!ARENA.boss) { ARENA.on = false; safe(() => notify('ยังไม่มีบอสให้จัดกิจกรรม')); return; }
   ARENA.me = myRow(); ARENA.me.d = 0; ARENA.me.j = Date.now();
   if (real) {
-    const joined = await (opt.api || window.AMBER_V273).join(opt.bossId);
+    const joined = await window.AMBER_V273.join();
     if (!joined?.ok) {
       ARENA.on = false;
       safe(() => notify('🛡️ เข้า World Boss จริงไม่ได้: ' + (joined?.reason || 'เซิร์ฟเวอร์ไม่ตอบรับ')));
@@ -237,7 +230,7 @@ async function openArena(practice,opt) {
 function closeArena() {
   ARENA.timers.forEach(clearInterval); ARENA.timers = []; ARENA.on = false;
   $('px26Arena')?.remove();
-  if (ARENA.serverMode && !ARENA.claiming) void API()?.leave?.();
+  if (ARENA.serverMode && !ARENA.claiming) void window.AMBER_V273?.leave?.();
 }
 function buildArena() {
   $('px26Arena')?.remove(); const b = ARENA.boss;
@@ -300,8 +293,8 @@ async function serverArenaStep(doAttack) {
   ARENA.serverBusy = true;
   const ev = ARENA.ev;
   try {
-    const s = doAttack ? await API().attack(ARENA.autoSkill,ARENA.autoPotion)
-      : await API().status(ev);
+    const s = doAttack ? await window.AMBER_V273.attack(ARENA.autoSkill,ARENA.autoPotion)
+      : await window.AMBER_V273.status(ev);
     if (!ARENA.on || ARENA.ev !== ev) return;
     if (s?.ok) {
       ARENA.server = {...ARENA.server,...s};
@@ -341,7 +334,7 @@ function arenaTick() {
     // V28.7: Real-time verified ranking is refreshed even while AUTO attacks.
     if (ARENA.tick%3===0 && !ARENA.rankingBusy && !ARENA.done) {
       ARENA.rankingBusy=true;const key=ARENA.ev;
-      Promise.resolve(API().status(key)).then(s=>{
+      Promise.resolve(window.AMBER_V273.status(key)).then(s=>{
         if(ARENA.on&&ARENA.ev===key&&s?.ok&&Array.isArray(s.ranking)){
           ARENA.server={...(ARENA.server||{}),ranking:s.ranking};
           paintArena(false);
@@ -395,13 +388,10 @@ function finishArena(win) {
     : '⏳ Supabase กำลังตรวจผลบอสจริงและจ่าย Gold/แร่ (ไม่แจกคอยล์)';
 
   // Server HP is authoritative. No local broadcast, hit(), ranking, or bot can mint prizes.
-  if (ARENA.serverMode && win && v && API()?.claim) {
+  if (ARENA.serverMode && win && v && window.AMBER_V273?.claim) {
     ARENA.claiming = true;
-    void API().claim(event).then(result => {
-      if (ARENA.api && result?.ok === true) {
-        rewardTxt='✅ Supabase ยืนยันรางวัล'+(result.fragments_text ? ' · '+String(result.fragments_text) : (result.reason_text ? ' · '+String(result.reason_text) : ''));
-        window.AMBER_V28S?.refreshFragments?.();
-      } else if (result?.ok === true) {
+    void window.AMBER_V273.claim(event).then(result => {
+      if (result?.ok === true) {
         v.wb.claimed = event;
         v.wb.total = (v.wb.total | 0) + 1;
         safe(() => { V25().commit(); V25().refresh(); });
@@ -415,14 +405,14 @@ function finishArena(win) {
     }).catch(e => {
       console.error('[V27.3 boss claim]',e);
       if (ARENA.ev === event && $('px26RewardStatus')) $('px26RewardStatus').textContent='🛡️ ตรวจสอบรางวัลไม่สำเร็จ กดตรวจรางวัลล่าสุดจากเมนูกิจกรรมได้';
-    }).finally(() => { ARENA.claiming = false; if (!ARENA.on) void API()?.leave?.(); });
+    }).finally(() => { ARENA.claiming = false; if (!ARENA.on) void window.AMBER_V273?.leave?.(); });
   }
   const res = document.createElement('div'); res.className = 'px26-res';
   res.innerHTML = `<div class="box"><h2>${win ? (simulated ? '⚔️ จบการซ้อมบอส' : '🏆 ปราบบอสสำเร็จ!') : '⌛ บอสหนีไปแล้ว'}</h2><p>${esc(ARENA.boss.name)} · ผู้ร่วมรบ ${all.length} คน</p><ol id="px287WorldBossRank">${ARENA.serverMode&&!all.length?'<li>กำลังตรวจอันดับกับ Supabase...</li>':all.slice(0,10).map(p=>`<li${p.me?' class="me"':''}>${esc(p.n)} <b>${fmt(p.d)}</b></li>`).join('')}</ol><p id="px26RewardStatus">${esc(rewardTxt)}</p><button class="goldbtn" data-px26="arx">ปิด</button></div>`;
   $('px26Arena')?.appendChild(res);
   // Refresh final scores AFTER the winning hit; attack RPC may not include the ranking array.
-  if(ARENA.serverMode && API()?.status){
-    Promise.resolve(API().status(event)).then(s=>{
+  if(ARENA.serverMode && window.AMBER_V273?.status){
+    Promise.resolve(window.AMBER_V273.status(event)).then(s=>{
       if(ARENA.ev!==event||!s?.ok||!Array.isArray(s.ranking))return;
       ARENA.server={...(ARENA.server||{}),ranking:s.ranking};
       const target=$('px287WorldBossRank');if(!target)return;

@@ -199,11 +199,10 @@ openShop=function(){
 // Some skills in EVERY class and path strike 2–3 times; damage is a bounded TOTAL, not multiplied per hit.
 SKILLS.forEach(sk=>{const i=Number(sk.id.slice(sk.id.lastIndexOf('_')+1));sk.hits=i===1||i===7?2:i===4?3:1});
 const originalRenderSkills=renderSkills;
-// V30.7: the compact battle bar displays ONE skill name, with no stacked hit counters.
-// The multi-hit number stays on SKILLS and inside server-side combat unchanged.
-renderSkills=function(){originalRenderSkills.apply(this,arguments);
- const host=$('skills'); if(host) host.querySelectorAll('.amber-skill-hits').forEach(n=>n.remove());
-};
+renderSkills=function(){originalRenderSkills();$('skills')?.querySelectorAll('button').forEach((b,i)=>{
+ const sk=SKILLS.filter(x=>state.learned.includes(x.id))[i];if(!sk)return;
+ if(sk.hits>1){const hint=document.createElement('small');hint.className='amber-skill-hits';hint.textContent='×'+sk.hits+' ฮิต';b.appendChild(hint)}
+ })};
 function takeQueuedSkill(available){const id=API.queuedSkill;API.queuedSkill='';return id?(available.find(s=>s.id===id)||null):null}
 function multiFx(total,hits){
  hits=bound(hits,2,3);let remaining=Math.max(1,Math.round(total));

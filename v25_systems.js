@@ -59,7 +59,7 @@ const MON = () => safe(() => MONS, []) || [];
 const CARD_T = [25, 100, 400, 1500], BOSS_T = [1, 5, 15, 40];
 const STAT4 = [['ATK', 5, 'โจมตี'], ['DEF', 3, 'ป้องกัน'], ['HP', 65, 'HP'], ['MP', 30, 'MP']];
 const TMULT = [0, 1, 2, 3.5, 6];
-const cardTier = (name, boss) => { const k = window.AMBER_V303_CARDS?.count?.(name,boss) ?? (V().ck[name] | 0), T = boss ? BOSS_T : CARD_T; let t = 0; for (let i = 0; i < 4; i++) if (k >= T[i]) t = i + 1; return t; };
+const cardTier = (name, boss) => { const k = V().ck[name] | 0, T = boss ? BOSS_T : CARD_T; let t = 0; for (let i = 0; i < 4; i++) if (k >= T[i]) t = i + 1; return t; };
 function cardBonus(m, t) { const h = PX.hash(m.name) % 4, [k, base] = STAT4[h]; return { k, v: Math.round(base * TMULT[t] * (m.boss ? 3 : 1)), label: STAT4[h][2] }; }
 function totalCards() { let n = 0; for (const m of MON()) if (cardTier(m.name, m.boss) > 0) n++; return n; }
 function eqPieces() {
@@ -99,14 +99,11 @@ const TITLES = {
   wb1:    { name: 'ผู้กล้าบอสโลก', cls: 'fire',  test: () => V().wb.total > 0,    how: 'ชนะบอสโลกในช่วงกิจกรรม' }
 };
 function refreshTitles() {
-  if(window.AMBER_CLOUD?.getStatus?.()?.cloudReady)return;
   const v = V(); let gain = [];
   for (const [id, t] of Object.entries(TITLES)) if (!t.live && t.test && safe(t.test, false) && !v.titles.owned.includes(id)) { v.titles.owned.push(id); gain.push(t.name); }
   if (gain.length) { safe(() => notify('🏷️ ได้รับฉายาใหม่: ' + gain.join(', '))); commit(); }
 }
 function activeTitleId() {
-  const verified=window.AMBER_V304_TITLES?.active?.();
-  if(verified!==null && verified!==undefined)return verified;
   const v = V(), si = setInfo();
   if (v.titles.active === 'auto' || !v.titles.active) { if (si.id) return si.id; const o = v.titles.owned; return o.length ? o[o.length - 1] : ''; }
   if (v.titles.active.startsWith('set_') || v.titles.active === 'boss3') return si.id === v.titles.active ? si.id : (si.id || '');
@@ -214,7 +211,7 @@ function installHooks() {
     tick = function () {
       const st = S(), k = st ? st.kills : 0, m = safe(() => mob(), null), name = m && m.name, rd = typeof raid !== 'undefined' ? raid : null;
       t0.apply(this, arguments);
-      if (st && st.kills > k && name && !rd && !(window.AMBER_CLOUD?.getStatus?.()?.cloudReady)) { const n = st.kills - k, v = V(); const before = cardTier(name, m.boss); v.ck[name] = (v.ck[name] | 0) + n; bump('kill', n); if (cardTier(name, m.boss) > before) onCardUp(m); }
+      if (st && st.kills > k && name && !rd) { const n = st.kills - k, v = V(); const before = cardTier(name, m.boss); v.ck[name] = (v.ck[name] | 0) + n; bump('kill', n); if (cardTier(name, m.boss) > before) onCardUp(m); }
     };
   });
   safe(() => { const lg = log; log = function (msg, t) { lg.apply(this, arguments); if (typeof msg === 'string' && /^🏆 กำจัด /.test(msg)) onRaidWin(); }; });
@@ -226,7 +223,7 @@ function onCardUp(m) { const t = cardTier(m.name, m.boss), c = cardBonus(m, t); 
 function onRaidWin() {
   const v = V(), rd = typeof raid !== 'undefined' ? raid : null, m = safe(() => mob(), null); v.stat.raids++; bump('raid');
   const dmg = rd && rd.members && rd.members[0] ? rd.members[0].damage | 0 : 0;
-  if (m && !(window.AMBER_CLOUD?.getStatus?.()?.cloudReady)) { const before = cardTier(m.name, true); v.ck[m.name] = (v.ck[m.name] | 0) + 1; if (cardTier(m.name, true) > before) onCardUp(m); }
+  if (m) { const before = cardTier(m.name, true); v.ck[m.name] = (v.ck[m.name] | 0) + 1; if (cardTier(m.name, true) > before) onCardUp(m); }
   const w = wkey(); if (v.wb.week !== w) { v.wb.week = w; v.wb.dmg = 0; } v.wb.dmg += dmg;
   if (wbWindow().open) safe(() => notify('🛡️ โบนัสบอสโลกรอเซิร์ฟเวอร์ตรวจผลก่อนจ่ายจริง'));
   refreshTitles(); commit(); pushScore();
@@ -405,11 +402,8 @@ const TABS = [['checkin', '📅 เช็กอิน'], ['daily', '🎯 ภา�
 let curTab = 'checkin';
 function closeHub() { safe(() => closeModal()); }
 async function openHub(tab) {
-  if(tab==='boss'&&window.AMBER_V28_HUB?.open)return window.AMBER_V28_HUB.open('select');
   curTab = tab || curTab; ensureDaily(); refreshTitles();
   if (curTab === 'checkin' && window.AMBER_V27) await window.AMBER_V27.syncState(true);
-  if (curTab === 'cards') await window.AMBER_V303_CARDS?.refresh?.(true);
-  if (curTab === 'titles') await window.AMBER_V304_TITLES?.refresh?.(true);
   const tabs = `<div class="px25-tabs">${TABS.map(([id, t]) => `<button data-v25tab="${id}" class="${id === curTab ? 'on' : ''}">${t}</button>`).join('')}</div>`;
   openModal('🎯 กิจกรรม & ระบบเสริม', tabs + '<div id="px25Body" class="px25-body"><p class="px25-hint">กำลังโหลด…</p></div>');
   const body = $('px25Body'); if (!body) return;
@@ -435,7 +429,7 @@ function tabBoss() {
 }
 function tabCards() {
   const mons = MON(); let own = 0; const cells = mons.map(m => {
-    const t = cardTier(m.name, m.boss), k = window.AMBER_V303_CARDS?.count?.(m.name,m.boss) ?? (V().ck[m.name] | 0), T = m.boss ? BOSS_T : CARD_T, nx = T[Math.min(3, t)]; if (t) own++;
+    const t = cardTier(m.name, m.boss), k = V().ck[m.name] | 0, T = m.boss ? BOSS_T : CARD_T, nx = T[Math.min(3, t)]; if (t) own++;
     const c = t ? cardBonus(m, t) : cardBonus(m, 1);
     // V26.1: Present the exact bonuses calculated by the existing card system.
     // Information only: card thresholds, stat calculation and saved data stay unchanged.
@@ -452,7 +446,7 @@ function tabCards() {
 }
 function tabTitles() {
   const v = V(), si = setInfo(), act = activeTitleId();
-  const rows = Object.entries(TITLES).map(([id, t]) => { const own = window.AMBER_CLOUD?.getStatus?.()?.cloudReady ? !!window.AMBER_V304_TITLES?.owns?.(id) : (t.live ? si.id === id : v.titles.owned.includes(id)); return `<div class="px25-m ${act === id ? 'got' : ''}">${titleHTML(id)}<small>${esc(t.how)}</small>${own ? (act === id ? '<span>✔ ใช้อยู่</span>' : `<button data-v25="title" data-id="${id}">ใช้ฉายา</button>`) : '<small>🔒</small>'}</div>`; }).join('');
+  const rows = Object.entries(TITLES).map(([id, t]) => { const own = t.live ? si.id === id : v.titles.owned.includes(id); return `<div class="px25-m ${act === id ? 'got' : ''}">${titleHTML(id)}<small>${esc(t.how)}</small>${own ? (act === id ? '<span>✔ ใช้อยู่</span>' : `<button data-v25="title" data-id="${id}">ใช้ฉายา</button>`) : '<small>🔒</small>'}</div>`; }).join('');
   const pieces = eqPieces().map((g, i) => `<span class="px25-pc ${isBossG(g) ? 'ok' : ''}">${['อาวุธ', 'ชุด', 'ถุงมือ', 'รองเท้า', 'แหวน'][i]} ${isBossG(g) ? '🌈' : '—'}</span>`).join('');
   return `<div class="px25-setbox ${si.full ? 'full' : ''}"><b>ชุดบอส ${si.n}/5</b><div>${pieces}</div><small>${si.full ? '✨ ครบเซ็ต! ฉายาเรืองแสงพร้อมออร่าแสงสีรอบตัว + โบนัส ATK+100 DEF+60 HP+800 MP+200 CRIT+3' : 'สวมของบอสจากดันเจียนให้ครบ 5 ชิ้น (อาวุธ ชุด ถุงมือ รองเท้า แหวน) เพื่อปลดฉายาและออร่า'}</small></div><div class="px25-ms">${rows}</div><button data-v25="titleauto" ${v.titles.active === 'auto' ? 'disabled' : ''}>🔁 เลือกฉายาที่ดีที่สุดอัตโนมัติ</button>`;
 }
@@ -480,7 +474,7 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-v25]'); if (!b || b.disabled) return; const a = b.dataset.v25;
   if (a === 'checkinretry') { void openHub('checkin'); } else if (a === 'dailyretry') { void openHub('daily'); } else if (a === 'checkin') { b.disabled=true; void (async()=>{try{await doCheckin();}catch(err){console.error('[V297 checkin]',err);}finally{if($('px25Body')){try{await openHub('checkin');}catch(err){console.error('[V29.7 checkin view]',err);}}}})(); } else if (a === 'mclaim') { void claimMission(+b.dataset.i).then(()=>openHub('daily')); } else if (a === 'dbonus') { void claimDailyBonus().then(()=>openHub('daily')); }
   else if (a === 'wbjoin') { if (window.AMBER_V26) { closeHub(); window.AMBER_V26.openArena(false); } else wbJoin(); } else if (a === 'wbprac') { closeHub(); window.AMBER_V26 && window.AMBER_V26.openArena(true); } else if (a === 'wbclaim') { window.AMBER_V273?.claimLast?.(); } else if (a === 'rebirth') doRebirth();
-  else if (a === 'title') { if(window.AMBER_CLOUD?.getStatus?.()?.cloudReady){ void window.AMBER_V304_TITLES?.select?.(b.dataset.id); } else {V().titles.active=b.dataset.id;commit();decorateScene();openHub('titles');} } else if (a === 'titleauto') { if(window.AMBER_CLOUD?.getStatus?.()?.cloudReady){void window.AMBER_V304_TITLES?.select?.('auto');} else {V().titles.active='auto';commit();openHub('titles');} }
+  else if (a === 'title') { V().titles.active = b.dataset.id; commit(); decorateScene(); openHub('titles'); } else if (a === 'titleauto') { V().titles.active = 'auto'; commit(); openHub('titles'); }
   else if (a === 'sharechar') shareCard(null); else if (a === 'shareg') shareCard((S().gear || []).find(g => String(g.id) === b.dataset.id));
   else if (a === 'copy') { safe(() => navigator.clipboard.writeText(b.dataset.t)); notify('คัดลอกแล้ว'); }
   else if (/^g(create|join|send|leave)$/.test(a)) guildAct(a, b); else if (a === 'refuse' || a === 'refclaim') refAct(a, b);

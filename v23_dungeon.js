@@ -68,13 +68,7 @@ function drawScene(){const scene=$('scene');if(!scene)return;
  const waiting=room.status==='waiting',finished=room.status==='finished';
  $('scenetitle').innerHTML=`<b>${esc(k.name)}</b><br><small>${waiting?'👥 จุดรวมพล รอสมาชิกกดพร้อม':finished?'🏆 เคลียร์ดันเจียนสำเร็จ':'⚔️ ห้องออนไลน์ · บอส '+Math.max(1,Number(room.boss_index)||1)+'/3'} · ${live.length}/6 คน</small>`;
  const sp=$('sprites');if(sp){window.AMBER_SCENE_PLAYERS=live.filter(p=>p.user_id!==uid()).map(p=>({...who(p.user_id),id:p.user_id,n:p.name||who(p.user_id)?.n||'ผู้เล่น',job:who(p.user_id)?.job||'นักผจญภัย'}));
- // V30.8: keep existing live character DOM through HP/status polling.
- // Old code rebuilt every player image each time, producing ghost art and title flashing.
- const dgKey=live.map(p=>[p.user_id,p.name||'',p.ready?'1':'0',room.owner_id===p.user_id?'1':'0',waiting?'1':'0'].join('|')).join(';');
- if(sp.dataset.amber308DgKey!==dgKey||sp.querySelectorAll(':scope > .amber24-dg-hero').length!==live.length){
-  sp.innerHTML=live.map((p,i)=>`<div class="sprite amber24-dg-hero ${p.user_id===uid()?'amber24-dg-self':''}" style="--order:${i}"><img src="${esc(heroImg(p))}" alt="${esc(p.name)}"><small>${p.user_id===room.owner_id?'👑 ':''}${esc(p.name||'ผู้เล่น')}</small>${waiting?`<span class="amber24-ready ${p.ready?'yes':'no'}">${p.ready?'✓ พร้อม':'รอพร้อม'}</span>`:''}</div>`).join('');
-  sp.dataset.amber308DgKey=dgKey;
- }
+ sp.innerHTML=live.map((p,i)=>`<div class="sprite amber24-dg-hero ${p.user_id===uid()?'amber24-dg-self':''}" style="--order:${i}"><img src="${esc(heroImg(p))}" alt="${esc(p.name)}"><small>${p.user_id===room.owner_id?'👑 ':''}${esc(p.name||'ผู้เล่น')}</small>${waiting?`<span class="amber24-ready ${p.ready?'yes':'no'}">${p.ready?'✓ พร้อม':'รอพร้อม'}</span>`:''}</div>`).join('');
  // Dungeon redraws #sprites independently: restore exactly the existing map overlays.
  // V12/Item Shop/Pet all assume local player is sprite #0 (sorted above).
  window.AMBER_V12?.sceneDecorate?.();
@@ -112,7 +106,7 @@ function homePanel(){const p=controlPanel();if(!p)return;
  if(!inView()){p.hidden=true;document.querySelector('.middle .scenefoot')?.classList.remove('amber24-hide-world-foot');renderInvites();return}
  p.hidden=false;document.querySelector('.middle .scenefoot')?.classList.add('amber24-hide-world-foot');renderInvites();
 }
-function skills(){return SKILLS.filter(s=>!s.buff&&!/_(?:2|5)$/.test(String(s.id))&&state.learned?.includes(s.id)&&state.mp>=s.mp)}
+function skills(){return SKILLS.filter(s=>!s.buff&&state.learned?.includes(s.id)&&state.mp>=s.mp)}
 function slotSkills(){const pool=skills();const slots=Array.isArray(state.autoSkillSlots)?state.autoSkillSlots.filter(Boolean):[];return slots.length?pool.filter(s=>slots.includes(s.id)):[]}
 function picker(){const list=skills();return '<option value="">⚔️ โจมตีธรรมดา</option>'+list.map(s=>`<option value="${esc(s.id)}" ${selected===s.id?'selected':''}>${esc(s.name)} · MP ${s.mp}</option>`).join('')}
 function refreshControls(){const p=$('amber24DGPanel');if(!p||!inView())return;
@@ -218,18 +212,10 @@ async function attack(isAuto){if(!inside()||attackBusy||Date.now()-lastAttack<11
     catch(e){if(/PGRST202|Could not find the function|schema cache|404|not found/i.test(String(e.message||e))){
        enhancedRpc=false;
        if(!enhancedWarned){enhancedWarned=true;announce('ℹ️ ยังไม่ติดตั้ง SQL เสริม: AUTO Skill แสดงเอฟเฟกต์ได้ แต่ดาเมจสกิลดันเจียนยังเป็นค่าเดิม')}
-     }else if(sk&&/V287_DG_SKILL_NOT_LEARNED|V287_DG_SKILL_INVALID|V287_DG_SKILL_NOT_ALLOWED/i.test(String(e.message||e))){
-      // The server rejected this skill; repeat ONCE with a regular server-side attack.
-      // Do not grant damage on the client or suppress any other server error.
-      out=await rpc('attack_v24',{p_room:id,p_skill:null});
-      if(Date.now()-(window.AMBER_V308_LAST_INVALID_SKILL_NOTICE||0)>20000){
-        window.AMBER_V308_LAST_INVALID_SKILL_NOTICE=Date.now();
-        announce('⚠️ สกิลนี้ใช้กับบอสไม่ได้ เปลี่ยนเป็นโจมตีธรรมดาโดยเซิร์ฟเวอร์');
-      }
-    }else throw e}
+     }else throw e}
   }
   if(!enhancedRpc)out=await rpc('attack',{p_room:id});
-  if(!out||!out.room){announce('⚠️ เซิร์ฟเวอร์ไม่ส่งสถานะ HP บอสกลับมา กรุณาลองใหม่');return;}
+  if(!out||!out.room)return;
   const oldBoss=room?.boss_index;applyRoom(out.room,true);lastSync=Date.now();
   if(out.mp_left!=null&&Number.isFinite(Number(out.mp_left))){state.mp=Math.max(0,Number(out.mp_left));renderTop();save();}
    if(sk&&out.skill_applied===true)window.AMBER_FX?.onAttack?.(sk,out.damage,{name:stageName()});

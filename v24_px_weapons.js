@@ -151,7 +151,6 @@ function staffOps(s) {
 const BUILD = { 'ดาบ': swordOps, 'หมัด': clawOps, 'ธนู': bowOps, 'จอมเวท': staffOps };
 const memoOps = new Map();
 function build(spec) {
-  if (spec.ult && PX.ultWeapons) return PX.ultWeapons.build(spec);
   const k = [spec.cls, spec.tier | 0, spec.theme || 'normal', spec.seed | 0].join('|');
   let v = memoOps.get(k); if (!v) { v = (BUILD[spec.cls] || swordOps)(spec); memoOps.set(k, v); } return v;
 }
@@ -192,7 +191,6 @@ function stamp(dst, spec, x, y, ang = 0, o = {}) {
 }
 /* flame / frost / prism sparkles that follow the weapon (call per frame with time t in 0..1) */
 function fx(dst, spec, x, y, ang, t, sc = 1) {
-  if (spec.ult && PX.ultWeapons?.fx) return PX.ultWeapons.fx(dst, spec, x, y, ang, t, sc);
   const th = spec.theme || 'normal'; if (th === 'normal' || th === 'training') return;
   const b = build(spec), a = ang * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), r = rng(hash(th) + Math.floor(t * 8));
   const at = (lx, ly) => [x + (lx * ca - ly * sa) * sc, y + (lx * sa + ly * ca) * sc];
