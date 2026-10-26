@@ -7,6 +7,7 @@
 let busy=false;
 // One server action at a time; avoid cancelling AUTO on transient network failures.
 let autoRetryAfter=0,autoErrorCount=0;
+const blockedAutoSkillIds=new Set(); // V29.3: ignore only server-rejected skills for this session
 let slotsPending=false,desiredSlots=null,slotQueue=Promise.resolve();
 const C=()=>window.AMBER_CLOUD;
 const ready=()=>Boolean(C()?.getStatus?.()?.cloudReady && C()?.getClient?.());
@@ -50,10 +51,12 @@ window.tick=async function v283ServerTick(){
  const oldLevel=Number(state.lv)||1;
  const lastAuto=!!state.auto;
  const learned=Array.isArray(state.learned)?state.learned:[];
- const usable=SKILLS.filter(x=>learned.includes(x.id)&&!x.buff&&Number(state.mp)>=Number(x.mp));
+ const usable=SKILLS.filter(x=>learned.includes(x.id)&&x.job===state.job&&!x.buff&&Number(state.mp)>=Number(x.mp)
+    &&(Number(state.v25?.rebirth||0)>0||Number(state.lv)>=Number(x.level||1))
+    &&!blockedAutoSkillIds.has(x.id));
  // A manually queued skill is permitted; AUTO only selects the configured 6 slots.
  const manual=window.AMBER_V12?.takeQueuedSkill?.(usable)||null;
- const picked=manual||(lastAuto && state.autoSkill && Math.random()<0.35
+ const picked=manual||(lastAuto && state.autoSkill
    ? (window.AMBER_V19?.pickSkill?.(usable)||null):null);
  const params={p_monster_id:m.id,p_skill_id:picked?.id||null};
  if(lastAuto){
@@ -81,6 +84,11 @@ window.tick=async function v283ServerTick(){
  }catch(e){
    const message=String(e.message||e);
    if(/COOLDOWN|ระบบกำลังทำรายการ/.test(message))return;
+   if(lastAuto && picked && /SKILL_INVALID|V277_MP_LOW/.test(message)){
+     blockedAutoSkillIds.add(picked.id);
+     tell('⚠️ AUTO ข้ามสกิลที่เซิร์ฟเวอร์ปฏิเสธ: '+String(picked.name||picked.id).slice(0,40)+' · เปลี่ยนเป็นโจมตีปกติต่อ');
+     return;
+   }
    const hard=/LEVEL_LOCK|MAP_MISMATCH|MONSTER_NOT_FOUND|SKILL_INVALID|MP_LOW|CHARACTER_DEAD|BAD_SAVE|V283_STATE_INVALID|V283_THRESHOLD_INVALID/i.test(message);
    if(hard){if(lastAuto)stop();tell('🛡️ ต้องตรวจสถานะ AUTO: '+message.slice(0,90));return;}
    // Temporary connection/server error: retry with bounded backoff instead of stopping.

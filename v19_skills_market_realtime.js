@@ -36,14 +36,14 @@ function renderSlots(){
  ensureSlots();
  host.innerHTML=state.autoSkillSlots.map((id,i)=>{
   const sk=SKILLS.find(x=>x.id===id),name=sk?.name||'— ว่าง —';
-  return `<div class="amber19-slot"><span class="amber19-sloticon">${sk?`<img src="${esc(image(sk.icon))}" alt="">`:'➕'}</span><span class="amber19-slotlabel"><b>ช่อง ${i+1} · ${esc(name)}</b><small>${sk?`MP ${sk.mp} · ${sk.buff?'บัฟ':'โจมตี'}`:'ช่องว่างจะไม่ถูกใช้ AUTO'}</small></span><button data-v19-pick="${i}">เลือก</button>${sk?`<button class="redbtn" data-v19-clear="${i}">ถอด</button>`:''}</div>`;
+  return `<div class="amber19-slot"><span class="amber19-sloticon">${sk?`<img src="${esc(image(sk.icon))}" alt="">`:'➕'}</span><span class="amber19-slotlabel"><b>ช่อง ${i+1} · ${esc(name)}</b><small>${sk?`MP ${sk.mp} · ${sk.buff?'บัฟ (AUTO โจมตีจะข้าม)':'โจมตี'}`:'ช่องว่างจะไม่ถูกใช้ AUTO'}</small></span><button data-v19-pick="${i}">เลือก</button>${sk?`<button class="redbtn" data-v19-clear="${i}">ถอด</button>`:''}</div>`;
  }).join('');
  host.querySelectorAll('[data-v19-pick]').forEach(b=>b.addEventListener('click',()=>choose(Number(b.dataset.v19Pick))));
  host.querySelectorAll('[data-v19-clear]').forEach(b=>b.addEventListener('click',()=>{setSlot(Number(b.dataset.v19Clear),null);renderSlots()}));
 }
 function showSkills(){
  ensureSlots();
- openModal('🎯 จัดช่องสกิล AUTO',`<p class="hint">เลือกเฉพาะสกิลที่ต้องการให้ AUTO ใช้ · ช่องที่ว่างจะไม่สุ่มสกิลอื่น · สกิลที่เรียนแล้วเท่านั้น</p><div id="amber19SkillSlots"></div><p class="hint">การกดสกิลด้วยมือยังทำงานเหมือนเดิม และเกมจะบันทึกชุด AUTO ไว้กับตัวละคร Google</p>`);
+ openModal('🎯 จัดช่องสกิล AUTO',`<p class="hint">เลือกสกิลโจมตีที่เรียนแล้วให้ AUTO ใช้ (รีเบิร์นยังใช้สกิลเดิมได้) · สกิลบัฟจะไม่ถูกนำไปยิงมอน · ช่องว่างไม่สุ่มสกิลอื่น</p><div id="amber19SkillSlots"></div><p class="hint">การกดสกิลด้วยมือยังทำงานเหมือนเดิม และเกมจะบันทึกชุด AUTO ไว้กับตัวละคร Google</p>`);
  renderSlots();
 }
 function setSlot(i,id){
@@ -56,7 +56,7 @@ function setSlot(i,id){
 }
 function choose(i){
  ensureSlots();const options=learned().filter(sk=>!state.autoSkillSlots.includes(sk.id)||state.autoSkillSlots[i]===sk.id);
- openModal('✨ เลือกสกิลช่อง '+(i+1),`<p>เลือกสกิลที่เรียนแล้วเพื่อตั้ง AUTO ช่อง ${i+1}</p><div class="amber19-picker">${options.map(sk=>`<button data-v19-skill="${esc(sk.id)}"><img src="${esc(image(sk.icon))}" alt=""><span>${esc(sk.name)}<small>MP ${sk.mp} · ${sk.buff?'บัฟ':'โจมตี'}</small></span></button>`).join('')||'<p class="hint">ยังไม่มีสกิลที่เรียน หรือทุกสกิลถูกเลือกแล้ว</p>'}</div><button id="amber19BackSkills">← กลับไปช่อง AUTO</button>`);
+ openModal('✨ เลือกสกิลช่อง '+(i+1),`<p>เลือกสกิลที่เรียนแล้วเพื่อตั้ง AUTO ช่อง ${i+1}</p><div class="amber19-picker">${options.map(sk=>`<button data-v19-skill="${esc(sk.id)}"><img src="${esc(image(sk.icon))}" alt=""><span>${esc(sk.name)}<small>MP ${sk.mp} · ${sk.buff?'บัฟ (AUTO โจมตีจะข้าม)':'โจมตี'}</small></span></button>`).join('')||'<p class="hint">ยังไม่มีสกิลที่เรียน หรือทุกสกิลถูกเลือกแล้ว</p>'}</div><button id="amber19BackSkills">← กลับไปช่อง AUTO</button>`);
  document.querySelectorAll('[data-v19-skill]').forEach(b=>b.addEventListener('click',()=>{setSlot(i,b.dataset.v19Skill);showSkills()}));
  $('amber19BackSkills')?.addEventListener('click',showSkills);
 }
