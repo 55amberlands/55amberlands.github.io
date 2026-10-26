@@ -78,7 +78,7 @@ function setInfo() {
 window.AMBER_V25_BONUS = b => {
   const st = S(); if (!st || !st.v25) return; const v = V(), add = (k, x) => { b[k] = (b[k] || 0) + x; };
   for (const m of MON()) { const t = cardTier(m.name, m.boss); if (t) { const c = cardBonus(m, t); add(c.k, c.v); } }
-  if (v.rebirth) { add('ATK', v.rebirth * 12); add('DEF', v.rebirth * 8); add('HP', v.rebirth * 150); add('MP', v.rebirth * 40); }
+  if (v.rebirth) { add('ATK', v.rebirth * 500); add('DEF', v.rebirth * 200); add('HP', v.rebirth * 1500); add('MP', v.rebirth * 400); }
   const si = setInfo(); if (si.full) { add('ATK', 100); add('DEF', 60); add('HP', 800); add('MP', 200); add('CRIT', 3); } else if (si.n >= 3) { add('ATK', 30); add('DEF', 20); add('HP', 250); }
 };
 
@@ -260,7 +260,7 @@ async function doRebirth() {
     safe(() => notify('🔒 ต้องเชื่อม Supabase ก่อนเกิดใหม่'));
     return;
   }
-  if (!confirm('เกิดใหม่: เลเวลกลับเป็น 1 แต่ได้โบนัสถาวร ATK+12 DEF+8 HP+150 MP+40 และ EXP+10% ต่อครั้ง (สูงสุด 10 ครั้ง) · ของ ทอง และสกิลที่เรียนยังอยู่ · ยืนยัน?')) return;
+  if (!confirm('เกิดใหม่: เลเวลกลับเป็น 1 แต่ได้โบนัสถาวร ATK+500 DEF+200 HP+1500 MP+400 และ EXP+10% ต่อครั้ง (สูงสุด 10 ครั้ง) · ของ ทอง และสกิลที่เรียนยังอยู่ · ยืนยัน?')) return;
   try {
     const data = await window.AMBER_V277.invoke('amber_v282_rebirth', {});
     if (!data?.ok || !data?.save || !Number.isInteger(data.rebirth)) throw new Error('REBIRTH_NOT_CONFIRMED');
@@ -450,7 +450,7 @@ function tabTitles() {
 }
 function tabRebirth() {
   const st = S(), v = V(), can = st.lv >= 100 && v.rebirth < 10;
-  return `<div class="px25-reb"><img src="${PX.ui.rewardTile('star', 'rain', 56)}" alt=""><h3>🔥 เกิดใหม่ (Rebirth)</h3><p>ถึงเลเวล 100 แล้วเกิดใหม่ได้ — เลเวลกลับเป็น 1 แต่ได้ <b>โบนัสถาวรสะสม</b> ต่อครั้ง: ATK +12 · DEF +8 · HP +150 · MP +40 · EXP +10% (สูงสุด 10 ครั้ง)<br>ของ ทอง สกิล การ์ด ฉายา ยังอยู่ · ได้แต้มสเตตัสเริ่มต้นเพิ่ม</p><div class="px25-code">เกิดใหม่แล้ว ${v.rebirth}/10 ครั้ง</div><small>โบนัสตอนนี้: ATK +${v.rebirth * 12} · DEF +${v.rebirth * 8} · HP +${v.rebirth * 150} · EXP +${v.rebirth * 10}%</small><br><button class="goldbtn px25-big" data-v25="rebirth" ${can ? '' : 'disabled'}>${st.lv < 100 ? 'ต้องถึง Lv.100 (ตอนนี้ Lv.' + st.lv + ')' : v.rebirth >= 10 ? 'เกิดใหม่ครบแล้ว' : '🔥 เกิดใหม่เดี๋ยวนี้'}</button></div>`;
+  return `<div class="px25-reb"><img src="${PX.ui.rewardTile('star', 'rain', 56)}" alt=""><h3>🔥 เกิดใหม่ (Rebirth)</h3><p>ถึงเลเวล 100 แล้วเกิดใหม่ได้ — เลเวลกลับเป็น 1 แต่ได้ <b>โบนัสถาวรสะสม</b> ต่อครั้ง: ATK +500 · DEF +200 · HP +1500 · MP +400 · EXP +10% (สูงสุด 10 ครั้ง)<br>ของ ทอง สกิล การ์ด ฉายา ยังอยู่ · ได้แต้มสเตตัสเริ่มต้นเพิ่ม</p><div class="px25-code">เกิดใหม่แล้ว ${v.rebirth}/10 ครั้ง</div><small>โบนัสตอนนี้: ATK +${v.rebirth * 500} · DEF +${v.rebirth * 200} · HP +${v.rebirth * 1500} · EXP +${v.rebirth * 10}%</small><br><button class="goldbtn px25-big" data-v25="rebirth" ${can ? '' : 'disabled'}>${st.lv < 100 ? 'ต้องถึง Lv.100 (ตอนนี้ Lv.' + st.lv + ')' : v.rebirth >= 10 ? 'เกิดใหม่ครบแล้ว' : '🔥 เกิดใหม่เดี๋ยวนี้'}</button></div>`;
 }
 function tabShare() {
   const gear = (S().gear || []).filter(g => g.enh >= 7 || isBossG(g)).slice(0, 12);

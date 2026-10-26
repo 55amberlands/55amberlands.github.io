@@ -219,14 +219,14 @@ async function attack(isAuto){if(!inside()||attackBusy||Date.now()-lastAttack<11
   const oldBoss=room?.boss_index;applyRoom(out.room,true);lastSync=Date.now();
   if(out.mp_left!=null&&Number.isFinite(Number(out.mp_left))){state.mp=Math.max(0,Number(out.mp_left));renderTop();save();}
    if(sk&&out.skill_applied===true)window.AMBER_FX?.onAttack?.(sk,out.damage,{name:stageName()});
-  popDamage(out.damage); // show numeric damage for skills AND basic hits
+  popDamage(out.hit===false?'MISS':out.damage); // server-confirmed miss, no fake damage
   if(view){drawScene();refreshControls();}
   if(oldBoss&&room.boss_index!==oldBoss)announce('🐉 บอสตัวต่อไปปรากฏแล้ว!');
   if(room.status==='finished'){stopAuto();announce('🏆 จบดันเจียน! กดเปิดหีบรางวัล');signal('finish');}
  }catch(e){if(/cooldown|last_attack/i.test(String(e?.message||'')))return;error(e);if(/not active|not ready/i.test(String(e?.message||''))){stopAuto();sync(true)}}
  finally{attackBusy=false;}
 }
-function popDamage(n){const sc=$('scene');if(!sc||!inView())return;const d=document.createElement('span');d.className='amber24-damage';d.textContent='-'+fmt(n);sc.appendChild(d);setTimeout(()=>d.remove(),900)}
+function popDamage(n){const sc=$('scene');if(!sc||!inView())return;const d=document.createElement('span');d.className='amber24-damage';d.textContent=n==='MISS'?'MISS':'-'+fmt(n);sc.appendChild(d);setTimeout(()=>d.remove(),900)}
 function rewardHTML(rewards){const slots={S:'🥋 เสื้อบอส',G:'🥊 ถุงมือบอส',B:'👢 รองเท้าบอส',R:'💍 แหวนบอส'};
 return `<div class="amber24-rewards">${rewards.map(r=>{const a=r.reward||{},extras=Array.isArray(a.gear_drops)?a.gear_drops:[];
 const gear=[...(a.weapon?[`⚔️ อาวุธบอส ${esc(a.weapon_class||'')} ${a.best?'🌈 ออปเทพ 0.10%':'🌈'}`]:[]),...extras.map(g=>`${slots[g.slot]||'🎁 อุปกรณ์บอส'} ${g.best?'🌈 ออปเทพ 0.10%':'🌈'}`)];

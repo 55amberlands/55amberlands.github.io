@@ -51,11 +51,11 @@ function combat(){
  }
  const rb=Math.max(0,Math.min(10,Number(state.v25?.rebirth)||0));
  return {
-  atk:Math.max(1,Math.round(12+lv*2.8+str*1.45+focus+gearAtk+12*rb)),
-  def:Math.max(0,Math.round(lv*.45+vit*.65+gearDef+8*rb)),
-  accuracy:bound(.81+dex*.0027,.2,.985),
+  atk:Math.max(1,Math.round(12+lv*2.8+str*1.45+focus+gearAtk+500*rb)),
+  def:Math.max(0,Math.round(lv*.45+vit*.65+gearDef+200*rb)),
+  accuracy:bound(.81+dex*.0027+rb*.005,.2,.985),
   dodge:bound(.025+agi*.0015+dex*.0003,0,.24),
-  crit:bound(.07+luk*.0024+gearCrit/100,0,.80),
+  crit:bound(.07+luk*.0024+gearCrit/100+rb*.005,0,.80),
   aspd:Math.round(1000/Math.max(650,Math.round(925-agi*2))*100)/100,
   maxHp:Math.round(maxHp()),maxMp:Math.round(maxMp())
  }

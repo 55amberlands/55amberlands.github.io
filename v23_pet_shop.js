@@ -29,43 +29,60 @@ function pet(){
  if(!p.owned||!p.hunger)p.active=false;
  return p;
 }
-function commit(alsoCloud=true){save();if(alsoCloud&&ready()&&!pendingSave){pendingSave=true;Promise.resolve(cloud().saveNow?.()).catch(e=>console.warn('[AMBER PET]',e)).finally(()=>pendingSave=false)}}
-function consumeTime(){const p=pet();const now=Date.now(),ms=Math.max(0,Math.min(86400000,now-p.lastAt));p.lastAt=now;
- // 1% hunger / 2 minutes of actual summoned time (3 h 20 min full bar).
- if(p.active){p.hunger=Math.max(0,p.hunger-ms/120000);if(p.hunger===0){p.active=false;p.effects={};notify('🐶 สัตว์เลี้ยงหิว 0% เรียกไม่ได้! ซื้ออาหารที่ Item Shop แล้วใช้จากกระเป๋า')}}
-}
+function commit(){try{save()}catch(e){console.warn('[V278 UI]',e)}}
+function consumeTime(){/* Server owns pet hunger and timers from V27.8 onwards. */}
 function productsHTML(){return `<section class="amber23-products"><h3>🐶 สัตว์เลี้ยงและสกิล (V23)</h3><p class="hint">ของทุกชิ้นที่ซื้อจะเข้ากระเป๋าก่อน · สกิลขายแยก · บัตร DUO ใช้แล้วติดตั้งได้ 2 สกิล</p><div class="amber23-shopGrid">${PRODUCTS.map(g=>`<article class="amber23-goods"><span>${window.PXI?PXI(g.id,g.icon):g.icon}</span><b>${esc(g.name)}</b><small>${esc(g.detail)}</small><button type="button" data-am23-buy="${g.id}">💠 ${g.price} คอยล์ · ซื้อ</button></article>`).join('')}</div></section>`}
 function decorateShop(){const host=$('amber20ShopProducts');if(!host||$('amber23ShopSection'))return;
  const root=document.createElement('div');root.id='amber23ShopSection';root.innerHTML=productsHTML();host.parentNode.insertBefore(root,host.nextSibling);
  root.querySelectorAll('[data-am23-buy]').forEach(b=>b.addEventListener('click',()=>purchase(b.dataset.am23Buy)));
 }
-function purchase(id){
- const g=PRODUCTS.find(x=>x.id===id),p=pet();if(!g)return;
- if(!ready()){notify('ต้องล็อกอิน Google เพื่อซื้อไอเทม');return}
- if(p.items.length>=150){notify('กระเป๋า Item Shop เต็ม');return}
- if((Number(state.gems)||0)<g.price){notify('คอยล์ไม่เพียงพอ');return}
- if(!confirm(`ซื้อ ${g.name} ราคา ${g.price} คอยล์? สินค้าจะเข้ากระเป๋าก่อน`))return;
- state.gems-=g.price;
- const existing=g.kind==='food'?p.items.find(x=>x.sku===id):null;
- if(existing)existing.qty++;else p.items.push({id:'pet_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),sku:id,qty:1});
- commit();renderTop();renderBag();notify('✅ ซื้อ '+g.name+' แล้ว · ไอเทมอยู่ในกระเป๋า');
- if($('amber23ShopSection'))decorateShop();
+async function purchase(id){
+ const g=PRODUCTS.find(x=>x.id===id);if(!g)return;
+ if(!ready())return notify('ต้องล็อกอิน Google');
+ let qty=1;
+ if(id==='food'){
+   const response=window.prompt('ซื้ออาหารสัตว์เลี้ยงจำนวนกี่ชิ้น? (1–50 ชิ้น)','10');
+   if(response===null)return;
+   qty=Number(response.trim());
+   if(!Number.isInteger(qty)||qty<1||qty>50)return notify('กรุณาระบุจำนวน 1 ถึง 50 ชิ้น');
+ }
+ const total=g.price*qty;
+ if(!confirm('ซื้อ '+g.name+' ×'+qty+' ราคา '+total+' คอยล์ผ่าน Supabase?'))return;
+ try{
+   if(id==='food')await window.AMBER_V277.invoke('amber_v289_buy_pet_food',{p_qty:qty},{silent:true});
+   else await window.AMBER_V278.pet('buy',id);
+   notify('✅ Supabase ยืนยันการซื้อ '+g.name+' ×'+qty);
+   window.AMBER_ITEM_SHOP?.open?.();
+ }catch(e){notify('ซื้อไม่สำเร็จ: '+String(e.message||e).slice(0,100));}
+}
+// V28.9: Read-only server pet hunger. Browser never submits calculated hunger.
+let petStatusPending=false;
+async function refreshPetHunger(){
+ if(!ready()||petStatusPending||document.hidden)return;
+ petStatusPending=true;
+ try{
+   const {data,error}=await cloud().getClient().rpc('amber_v289_pet_status');
+   if(error||!data?.ok||!data?.pet)return;
+   const wasActive=!!pet().active;
+   state.pet23={...state.pet23,...data.pet};
+   const p=pet();
+   const label=$('amber23PetHunger');
+   if(label)label.textContent='🍖 ความอิ่ม '+Number(p.hunger).toFixed(1)+'%';
+   const bar=$('amber23PetBar');
+   if(bar)bar.style.width=Math.max(0,Math.min(100,Number(p.hunger))).toFixed(1)+'%';
+   const label2=$('amber23PetStatus');
+   if(label2)label2.textContent='สถานะ: '+(!p.owned?'🔒 ยังไม่ได้รับ':p.active?'🟢 กำลังติดตาม':'⚪ เก็บอยู่');
+   const toggleButton=$('amber23Toggle');
+   if(toggleButton)toggleButton.textContent=p.active?'🐾 เก็บสัตว์เลี้ยง':'🐕 เรียกสัตว์เลี้ยง';
+   if(wasActive&&!p.active){decorateScene();window.dispatchEvent(new Event('amber-v19-location'));}
+ }catch(e){console.warn('[AMBER PET STATUS]',e)}finally{petStatusPending=false}
 }
 function currentEffect(k){return pet().active&&Number(pet().effects[k]||0)>Date.now()}
 function damageFactor(){return currentEffect('shield')?.75:1}
 function attackFactor(){return currentEffect('attack')?1.30:1}
-function useItem(id){
- const p=pet(),ent=p.items.find(x=>x.id===id),g=PRODUCTS.find(x=>x.id===ent?.sku);if(!ent||!g)return;
- if(g.kind==='dog'&&p.owned){notify('คุณมีสุนัขอยู่แล้ว');return}
- if(g.kind==='duo'&&p.duo){notify('คุณปลดล็อก DUO แล้ว');return}
- if(g.kind==='skill'&&p.unlocked.includes(g.id)){notify('เรียนสกิลนี้แล้ว');return}
- if(g.kind==='food'&&!p.owned){notify('ต้องเปิดใช้งานสุนัขก่อน');return}
- if(g.kind==='dog'){p.owned=true;p.hunger=100;notify('🐶 ได้รับสุนัข! กดปุ่มสัตว์เลี้ยงเพื่อเรียก')}
- if(g.kind==='duo'){p.duo=true;notify('🎴 ปลดล็อก DUO Skill ได้แล้ว')}
- if(g.kind==='skill'){p.unlocked.push(g.id);if(p.skills.length<(p.duo?2:1))p.skills.push(g.id);notify('✨ เรียนสกิลสัตว์เลี้ยง '+g.name)}
- if(g.kind==='food'){p.hunger=Math.min(100,p.hunger+40);notify('🦴 ให้อาหารสำเร็จ ความอิ่ม '+Math.floor(p.hunger)+'%')}
- ent.qty--;if(ent.qty<=0)p.items=p.items.filter(x=>x!==ent);
- commit();renderBag();renderScene();openInventory();
+async function useItem(id){
+ try{await window.AMBER_V278.pet('use',null,id);notify('✅ Supabase อนุมัติใช้ไอเทมสัตว์เลี้ยง');renderBag();openInventory();}
+ catch(e){notify('ใช้ไอเทมไม่ได้: '+String(e.message||e).slice(0,85))}
 }
 function showItem(id){const ent=pet().items.find(x=>x.id===id),g=PRODUCTS.find(x=>x.id===ent?.sku);if(!g)return;
  openModal(g.icon+' '+g.name,`<p>${esc(g.detail)}</p><p>คงเหลือ ${ent.qty} ชิ้น · ซื้อมาแล้ว ยังไม่ได้ใช้งาน</p><button id="amber23UseItem">✅ ใช้ไอเทมจากกระเป๋า</button><button id="amber23GoBag">← กลับกระเป๋า</button>`);
@@ -76,19 +93,15 @@ function decorateBag(){const list=$('bag');if(!list)return;const frag=document.c
 const oldBag=renderBag;renderBag=function(){oldBag();decorateBag()};
 const oldInventory=openInventory;openInventory=function(){oldInventory();const parent=$('modalBody');if(parent){const items=itemList();parent.insertAdjacentHTML('beforeend',`<section class="amber23-inv"><h3>🐶 ไอเทมสัตว์เลี้ยง / Item Shop</h3><div class="amber23-itemGrid">${items||'<small>ยังไม่มีไอเทมสัตว์เลี้ยงในกระเป๋า</small>'}</div></section>`)} };
 document.addEventListener('click',ev=>{const el=ev.target.closest?.('[data-am23-item]');if(!el)return;ev.preventDefault();ev.stopImmediatePropagation();showItem(el.dataset.am23Item)},true);
-function toggle(){const p=pet();consumeTime();if(!p.owned){notify('ยังไม่มีสุนัข · ซื้อจาก Item Shop แล้วใช้จากกระเป๋าก่อน');return}
- if(!p.active){if(p.hunger<=0){notify('🐶 สัตว์เลี้ยงหิว 0% ต้องให้อาหารก่อนจึงเรียกได้');return}p.active=true;notify('🐕 เรียกสุนัขออกมาแล้ว')}
- else{p.active=false;p.effects={};notify('🐾 เก็บสุนัขแล้ว')}
- p.lastAt=Date.now();commit();decorateScene();window.dispatchEvent(new Event('amber-v19-location'));
- showPet();
+async function toggle(){
+ try{await window.AMBER_V278.pet('toggle');showPet();renderScene();window.dispatchEvent(new Event('amber-v19-location'));}
+ catch(e){notify('เรียกสัตว์เลี้ยงไม่ได้: '+String(e.message||e).slice(0,85))}
 }
-function slotSkill(id){const p=pet();if(!p.unlocked.includes(id))return;const cap=p.duo?2:1;
- if(p.skills.includes(id))p.skills=p.skills.filter(x=>x!==id);
- else if(p.skills.length<cap)p.skills.push(id);
- else{notify('ช่องเต็ม · ถอดสกิลก่อน');return}
- commit();showPet();
+async function slotSkill(id){
+ try{await window.AMBER_V278.pet('slot',id);showPet();}
+ catch(e){notify('จัดสกิลไม่ได้: '+String(e.message||e).slice(0,85))}
 }
-function showPet(){consumeTime();const p=pet(),slots=p.duo?2:1;openModal('🐶 จัดการสัตว์เลี้ยง',`<div class="amber23-petPanel"><img src="./assets/pet_dog_v23.png" alt="สุนัข"/><div><b>ลูกสุนัขผู้พิทักษ์</b><p>สถานะ: ${!p.owned?'🔒 ยังไม่ได้รับ':p.active?'🟢 กำลังติดตาม':'⚪ เก็บอยู่'}</p><p>🍖 ความอิ่ม ${Math.floor(p.hunger)}%</p><div class="amber23-hbar"><i style="width:${Math.floor(p.hunger)}%"></i></div>${p.hunger<=0?'<small style="color:#ff9292">⛔ หิว 0% เรียกสัตว์เลี้ยงไม่ได้ กรุณาให้อาหารจากกระเป๋า</small>':''}</div></div>
+function showPet(){consumeTime();refreshPetHunger();const p=pet(),slots=p.duo?2:1;openModal('🐶 จัดการสัตว์เลี้ยง',`<div class="amber23-petPanel"><img src="./assets/pet_dog_v23.png" alt="สุนัข"/><div><b>ลูกสุนัขผู้พิทักษ์</b><p id="amber23PetStatus">สถานะ: ${!p.owned?'🔒 ยังไม่ได้รับ':p.active?'🟢 กำลังติดตาม':'⚪ เก็บอยู่'}</p><p id="amber23PetHunger">🍖 ความอิ่ม ${Number(p.hunger).toFixed(1)}%</p><div class="amber23-hbar"><i id="amber23PetBar" style="width:${Math.floor(p.hunger)}%"></i></div>${p.hunger<=0?'<small style="color:#ff9292">⛔ หิว 0% เรียกสัตว์เลี้ยงไม่ได้ กรุณาให้อาหารจากกระเป๋า</small>':''}</div></div>
  <button id="amber23Toggle" ${!p.owned?'disabled':''}>${p.active?'🐾 เก็บสัตว์เลี้ยง':'🐕 เรียกสัตว์เลี้ยง'}</button>
  <h3>✨ จัดช่องสกิล (${p.skills.length}/${slots}) ${p.duo?'🎴 DUO':''}</h3><div class="amber23-skills">${Object.entries(SPEC).map(([id,sk])=>`<button data-am23-slot="${id}" ${!p.unlocked.includes(id)?'disabled':''}><b>${sk.name}</b><small>${!p.unlocked.includes(id)?'🔒 ซื้อแยกจาก Item Shop':p.skills.includes(id)?'✅ ติดตั้งแล้ว — แตะเพื่อถอด':'แตะเพื่อติดตั้ง'} · CD ${sk.cooldown/1000} วินาที</small></button>`).join('')}</div><p class="hint">🛡️ เกราะลดดาเมจ 25% · 💚 ฟื้น HP 10% และ MP 8% ทุก 3 วินาที · ⚔️ ATK +30% (มีระยะเวลาบัฟและคูลดาวน์ เพื่อรักษาสมดุล)</p><button id="amber23ToShop">💠 ไป Item Shop</button>`);
  $('amber23Toggle')?.addEventListener('click',toggle);
@@ -96,18 +109,16 @@ function showPet(){consumeTime();const p=pet(),slots=p.duo?2:1;openModal('🐶 �
  $('modalBody').querySelectorAll('[data-am23-slot]').forEach(b=>b.addEventListener('click',()=>slotSkill(b.dataset.am23Slot)));
 }
 function showFx(k,notice){const s=$('scene')||$('sprites')?.children?.[0];if(!s)return;const el=document.createElement('span');el.className='amber23-petburst amber23-petburst-'+k;el.textContent=notice;s.appendChild(el);setTimeout(()=>el.remove(),2200)}
-function cast(k){const p=pet(),spec=SPEC[k],n=Date.now();if(!spec||!p.active||p.hunger<=0||!p.skills.includes(k)||!p.unlocked.includes(k))return false;
- if(Number(p.cooldown[k]||0)>n)return false;
- p.cooldown[k]=n+spec.cooldown;p.effects[k]=n+spec.duration;
- showFx(k,spec.name);updateChip();commit();return true;
+async function cast(k){
+ if(!['shield','regen','attack'].includes(k))return false;
+ try{await window.AMBER_V278.pet('cast',k,null);showFx(k,SPEC[k].name);updateChip();return true;}
+ catch(e){return false;}
 }
 function updateChip(){let chip=document.getElementById('amber23PetEffectChip');if(!chip){chip=document.createElement('div');chip.id='amber23PetEffectChip';document.querySelector('.playerhead')?.appendChild(chip)}if(!chip)return;const p=pet(),now=Date.now();const buffs=[];if(p.active){if(p.effects.shield>now)buffs.push('🛡️ DEF +25%');if(p.effects.regen>now)buffs.push('💚 ฟื้น HP/MP');if(p.effects.attack>now)buffs.push('⚔️ ATK +30%')}chip.textContent=buffs.join(' · ');chip.style.display=buffs.length?'block':'none'}
 function autoSkills(){const p=pet();if(!p.active||!p.skills.length||state.hp<=0)return;for(const k of p.skills){if(!currentEffect(k)&&!(p.cooldown[k]>Date.now()))cast(k)}}
-function regen(){const p=pet();if(!p.active||!currentEffect('regen')||state.hp<=0)return;
- const hp=Math.max(1,Math.round(maxHp()*.10)),mp=Math.max(1,Math.round(maxMp()*.08));
- const beforeHp=state.hp,beforeMp=state.mp;
- state.hp=Math.min(maxHp(),state.hp+hp);state.mp=Math.min(maxMp(),state.mp+mp);
- if(state.hp!==beforeHp||state.mp!==beforeMp){renderTop();updateChip();showFx('regen','+'+(state.hp-beforeHp)+' HP / +'+(state.mp-beforeMp)+' MP');save()}
+async function regen(){
+ const p=pet();if(!p.active||!currentEffect('regen')||state.hp<=0)return;
+ try{await window.AMBER_V278.regen();}catch(e){/* cooldown, busy or offline */}
 }
 const previousCombat=window.AMBER_V12?.combat;
 if(previousCombat){window.AMBER_V12.combat=function(){const c=previousCombat();return {...c,atk:Math.round(c.atk*attackFactor())}}}
@@ -137,8 +148,10 @@ const st=document.createElement('style');st.textContent=`
 @media(max-width:380px){.amber23-shopGrid{grid-template-columns:1fr 1fr}.amber23-goods button{font-size:10px}}
 `;document.head.appendChild(st);
 window.AMBER_PET={pet,presenceInfo,decorateScene,showPet,damageFactor,attackFactor,cast};
-setInterval(()=>{const p=pet();if(!p.active)return;const before=Math.floor(p.hunger);consumeTime();autoSkills();if(Math.floor(p.hunger)!==before){commit();window.dispatchEvent(new Event('amber-v19-location'))}},3000);
+setInterval(()=>{if(pet().active)autoSkills()},3000);
 setInterval(regen,3000);setInterval(updateChip,1800);
+setInterval(()=>{if(ready()&&(pet().active||$('amber23PetHunger')))refreshPetHunger()},5000);
+window.addEventListener('focus',refreshPetHunger);
 window.addEventListener('focus',()=>{consumeTime();decorateScene()});
 setTimeout(()=>{pet();decorateScene()},750);
 })();
