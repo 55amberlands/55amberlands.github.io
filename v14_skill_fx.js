@@ -68,7 +68,16 @@ window.showSkillPath=function(path){
  }).join('');
 };
 const oldRenderSkills=renderSkills;
-renderSkills=function(){oldRenderSkills();const learned=SKILLS.filter(s=>state.learned.includes(s.id)).slice(0,8);$('skills')?.querySelectorAll('button').forEach((button,i)=>{const sk=learned[i];if(!sk)return;button.title=information(sk);button.setAttribute('aria-label',sk.name+' '+information(sk));if(sk.buff){const tag=document.createElement('small');tag.textContent='✨ ทีม';tag.className='amber14-buff-tag';button.appendChild(tag)}})};
+// V30.7: accessibility metadata only. Do NOT append more tags on each tick.
+renderSkills=function(){oldRenderSkills.apply(this,arguments);
+ const host=$('skills');if(!host)return;
+ host.querySelectorAll('.amber14-buff-tag').forEach(n=>n.remove());
+ const learned=SKILLS.filter(s=>state.learned.includes(s.id)).slice(0,8);
+ host.querySelectorAll('button').forEach((button,i)=>{
+  const sk=learned[i];if(!sk)return;
+  const info=information(sk);button.title=info;button.setAttribute('aria-label',sk.name+' '+info);
+ });
+};
 // Add short stat buffs to V12's combat calculation (not to inventory/equipment stats).
 const baseCombat=XP.combat;
 XP.combat=function(){const c=baseCombat();
