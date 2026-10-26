@@ -138,7 +138,29 @@ window.AMBER_V283={version:'28.3',saveSlots};
 window.buy=async function v277BuyPotion(type){
  try{await economy('buy_potion',{type});tell('✅ Supabase อนุมัติการซื้อยา');}catch{}
 };
-window.upStat=async function v277Stat(st){try{await economy('allocate_stat',{stat:st});statRows();}catch{}}
+// V29.5: stat allocation is confirmed by Supabase BEFORE updating displayed values.
+// The V12 extended combat panel is outside render(); refresh it in-place so the
+// modal and its scroll position stay open on mobile. Never locally mint stat points.
+window.upStat=async function v295LiveStat(st){
+ if(!['STR','DEX','INT','VIT','AGI','LUK'].includes(st))return;
+ try{
+   const receipt=await economy('allocate_stat',{stat:st});
+   if(!receipt?.ok || !receipt?.save)throw Error('STAT_NOT_CONFIRMED');
+   statRows();
+   window.AMBER_V12?.updateExtended?.();
+   window.AMBER_V12?.statStrip?.();
+   // The modal's original summary line is not part of render()/statRows().
+   // Replace just its numeric text; preserve the points button and its scroll.
+   const summary=document.getElementById('statrows')?.previousElementSibling;
+   if(summary?.tagName==='P' && summary.textContent.includes('พลังต่อสู้')){
+     const power=Math.round((Number(state.stats?.STR)||0)*8+(Number(state.stats?.DEX)||0)*3+(Number(state.lv)||1)*20);
+     for(const node of summary.childNodes){
+       if(node.nodeType===3 && node.textContent.includes('พลังต่อสู้'))
+         node.textContent=node.textContent.replace(/(พลังต่อสู้\s*)[0-9,]+/u,(_,prefix)=>prefix+power.toLocaleString('th-TH'));
+     }
+   }
+ }catch(err){console.warn('[V29.5 live stat refresh]',err);}
+};
 window.selectJob=async function v277Job(job){try{await economy('change_job',{job});closeModal();}catch{}}
 window.learnSkill=async function v277LearnSkill(id,path){try{await economy('learn_skill',{skill_id:id});showSkillPath(path)}catch{}}
 window.enhance=async function v277Enhance(id){
