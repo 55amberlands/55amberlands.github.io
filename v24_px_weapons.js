@@ -191,16 +191,60 @@ function stamp(dst, spec, x, y, ang = 0, o = {}) {
 }
 /* flame / frost / prism sparkles that follow the weapon (call per frame with time t in 0..1) */
 function fx(dst, spec, x, y, ang, t, sc = 1) {
-  const th = spec.theme || 'normal'; if (th === 'normal' || th === 'training') return;
-  const b = build(spec), a = ang * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), r = rng(hash(th) + Math.floor(t * 8));
+  // V3013_IN_HAND_ENHANCEMENT_FX: visual-only +7..+10 lights are rasterized
+  // ON the weapon at its real grip angle. No DOM overlays / duplicate hero.
+  const th = spec.theme || 'normal';
+  const enh = Math.max(0, Math.min(10, Math.floor(Number(spec.enh) || 0)));
+  if ((th === 'normal' || th === 'training') && enh < 7) return;
+  const b = build(spec), a = ang * Math.PI / 180;
+  const ca = Math.cos(a), sa = Math.sin(a);
   const at = (lx, ly) => [x + (lx * ca - ly * sa) * sc, y + (lx * sa + ly * ca) * sc];
-  const n = 4;
-  for (let i = 0; i < n; i++) {
-    const ly = -(r() * (b.len || 20)), lx = (r() - .5) * 5, p = at(lx, ly);
-    const up = ((t * 3 + i * .27) % 1);
-    if (th === 'fire') { dst.px(p[0], p[1] - up * 4, up < .5 ? '#ffd24a' : '#ff7a2a'); }
-    else if (th === 'ice') { dst.px(p[0], p[1] + up * 2, '#ffffff'); if (i % 2) dst.px(p[0] + 1, p[1] + up * 2, '#9fe8ff'); }
-    else { dst.px(p[0], p[1] - up * 3, RAIN[(i + Math.floor(t * 7)) % 7]); }
+  if (th !== 'normal' && th !== 'training') {
+    // Preserve the original flame / frost / prism particles even below +7.
+    const r = rng(hash(th) + Math.floor(t * 8));
+    for (let i = 0; i < 4; i++) {
+      const ly = -(r() * (b.len || 20)), lx = (r() - .5) * 5, p = at(lx, ly);
+      const up = ((t * 3 + i * .27) % 1);
+      if (th === 'fire') { dst.px(p[0], p[1] - up * 4, up < .5 ? '#ffd24a' : '#ff7a2a'); }
+      else if (th === 'ice') { dst.px(p[0], p[1] + up * 2, '#ffffff'); if (i % 2) dst.px(p[0] + 1, p[1] + up * 2, '#9fe8ff'); }
+      else { dst.px(p[0], p[1] - up * 3, RAIN[(i + Math.floor(t * 7)) % 7]); }
+    }
+  }
+  if (enh < 7) return;
+  const palette = {
+    7:  ['#60cfff', '#c9f7ff'],        // blue edge sparkles
+    8:  ['#ffcc4d', '#fff4b6'],        // gold halo sparks
+    9:  ['#f368ff', '#ffd3ff'],        // violet-pink intense flares
+    10: ['#e7faff', '#ffffff']         // white/rainbow radiance
+  }[enh];
+  const phase = Math.floor((((Number(t) || 0) % 1) + 1) % 1 * 8);
+  const r = rng(hash('V3013-' + enh) + (spec.seed | 0) * 37 + phase * 113);
+  const len = Math.max(7, Math.min(30, b.len || 20));
+  const count = 4 + (enh - 6) * 3;
+  for (let i = 0; i < count; i++) {
+    const h = -(2 + r() * (len - 2));
+    const offset = (r() - .5) * (3 + (enh - 7) * 1.5);
+    const pos = at(offset, h);
+    const cc = enh === 10 ? RAIN[(i + phase) % RAIN.length] : palette[i % 2];
+    dst.px(pos[0], pos[1], cc);
+    if (enh >= 8 && i % 3 === 0) {
+      dst.px(pos[0] + 1, pos[1], '#ffffff');
+      dst.px(pos[0], pos[1] - 1, palette[0]);
+    }
+    if (enh >= 9 && i % 4 === 0) {
+      dst.px(pos[0] - 1, pos[1], palette[0]);
+      dst.px(pos[0], pos[1] + 1, palette[1]);
+    }
+  }
+  if (enh === 10) {
+    // Small pixel-light trails and transparent vapor follow the weapon tip,
+    // not the character's face. +10 only; no gameplay damage change.
+    const pulse = (phase & 1) ? 1 : -1;
+    for (let j = 0; j < 4; j++) {
+      const v = at((j % 2 ? -2 : 2) + pulse, -(len * .72) - j * 2);
+      dst.px(v[0], v[1] - j, PX.alpha('#e2dcff', .35 + j * .08));
+      if ((j & 1) === 0) dst.px(v[0] + 1, v[1] - j, '#ffffff');
+    }
   }
 }
 /* local-space points of every op (for fitting icons) */
@@ -261,5 +305,5 @@ PX.weaponSpec = function (g) {
   if (spec.theme === 'training') spec.tier = 0;
   return spec;
 };
-PX.weaponKey = s => s ? [s.cls, s.tier, s.theme, s.seed].join('|') : 'none';
+PX.weaponKey = s => s ? [s.cls, s.tier, s.theme, s.seed, Math.max(0, Math.min(10, Math.floor(Number(s.enh) || 0)))].join('|') : 'none'; // V3013_IN_HAND_ENHANCEMENT_FX
 })();

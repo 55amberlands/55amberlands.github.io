@@ -212,6 +212,7 @@ function drawHero(job, gender, wspec, P) {
     const hF = P.handF, hB = P.handB;
     const armF = mkArm(shF, hF, { bend: 1 }); put(spr, armF);
     const pull = P.pull | 0; PX.weapon.stamp(spr, wp, hF[0] + 1, hF[1] - 1, 0, { scale: 1, pull, arrow: !!P.arrow, arrowLen: 20 });
+    PX.weapon.fx(spr, wp, hF[0] + 1, hF[1] - 1, 0, P.fxT, 1); // V3013_BOW_WEAPON_FX
     if (P.arrow || (P.shot)) { /* arrow flight */ }
     if (P.shot === 1) { spr.line(hF[0] + 6, hF[1] - 1, hF[0] + 24, hF[1] - 1, '#fff6d8', 1); spr.rect(hF[0] + 24, hF[1] - 2, 2, 3, '#ffffff'); spr.px(hF[0] + 5, hF[1] - 2, '#7dff9a'); }
     if (P.shot === 2) { spr.line(hF[0] + 17, hF[1] - 1, hF[0] + 33, hF[1] - 1, '#fff6d855', 1); spr.px(hF[0] + 34, hF[1] - 1, '#ffffff99'); }

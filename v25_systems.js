@@ -573,7 +573,7 @@ const css = document.createElement('style'); css.textContent = `
   border:0!important;border-radius:0!important;
   background:transparent!important;box-shadow:none!important;
   transform:translateX(-50%)!important;
-  z-index:2!important;
+  z-index:0!important;
   pointer-events:none!important;
   image-rendering:pixelated!important;
   opacity:1!important;
@@ -582,9 +582,11 @@ const css = document.createElement('style'); css.textContent = `
 }
 #sprites .sprite>img.amber20-characterWing{z-index:1!important}
 #sprites .sprite>img.px24-hero.amber20-characterBody{z-index:3!important}
-#sprites .sprite>.px24-equipfx{z-index:4!important}
-#sprites .sprite>.px25-plate{z-index:6!important}
-#sprites .sprite>small{z-index:7!important}
+#sprites .sprite>.px24-equipfx{z-index:0!important}
+#sprites .sprite>.px25-plate{z-index:12!important}
+#sprites .sprite>small{z-index:11!important}
+/* AMBER_V3013_AURA_BACK_WINGS_HERO_TITLE_WEAPON_GLOW -- original 72x110 sprite, one aura only, behind wings and actual hero. */
+
 .px25-emote{position:absolute!important;left:50%;top:-26px;width:44px!important;height:auto!important;border:0!important;border-radius:0!important;transform:translateX(-50%);z-index:9;image-rendering:pixelated;pointer-events:none;animation:px25pop .3s ease-out}@keyframes px25pop{from{transform:translateX(-50%) scale(.3)}to{transform:translateX(-50%) scale(1)}}
 #px25TopTitle{margin:3px 0 1px}
 .px25-setbox{border:1px solid #4a2c86;border-radius:10px;padding:8px;background:#1a0e33;margin-bottom:8px}.px25-setbox.full{border-color:#fff;box-shadow:0 0 14px #ff9aff88 inset,0 0 10px #7ad8ff88;animation:px25glow 3s linear infinite}.px25-pc{display:inline-block;font-size:11px;background:#2a1850;border-radius:99px;padding:1px 8px;margin:2px;color:#8a7aa8}.px25-pc.ok{color:#fff;background:#6a3aa8}
