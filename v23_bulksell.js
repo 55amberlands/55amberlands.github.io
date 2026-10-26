@@ -1,4 +1,4 @@
-/* V23 safe client-side NPC bulk sale; existing inventory and single-item sale preserved. */
+/* V28.4 server-confirmed, all-or-nothing NPC bulk sale. No client-generated Gold. */
 (()=>{'use strict';const $=id=>document.getElementById(id),esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let selected=new Set();
 const gearPrice=g=>Math.round((Number(g.lv)||1)*12*([1,1.25,1.6,2.1][Math.max(0,Math.min(3,g.rar||0))]||1)*(1+(Number(g.enh)||0)*.6)+20);
@@ -9,15 +9,35 @@ function renderBulk(){const rows=entries();openModal('💰 เลือกขา
 $('v23SelectAll').onclick=()=>{selected=new Set(rows.map(r=>r.key));renderBulk()};$('v23Unselect').onclick=()=>{selected.clear();renderBulk()};
 $('modalBody').querySelectorAll('[data-bulk-key]').forEach(c=>c.onchange=()=>{c.checked?selected.add(c.dataset.bulkKey):selected.delete(c.dataset.bulkKey)});
 $('v23SellConfirm').onclick=()=>sale();}
-function sale(){const chosen=entries().filter(r=>selected.has(r.key));if(!chosen.length){notify('ยังไม่ได้เลือกของที่จะขาย');return}
-const sum=chosen.reduce((acc,x)=>acc+x.qty*x.price,0);
-if(!confirm(`ยืนยันขาย ${chosen.length} ชนิด รับ ${sum.toLocaleString('th-TH')} Gold ?`))return;
-// Rebuild by stable ids/index; no implicit shop items and no equipped gear.
-const bagIndices=new Set(chosen.filter(r=>r.kind==='bag').map(r=>r.index));
-const gearIds=new Set(chosen.filter(r=>r.kind==='gear').map(r=>r.id));
-state.bag=state.bag.filter((g,i)=>!bagIndices.has(i));
-state.gear=state.gear.filter(g=>!gearIds.has(g.id));state.gold=Math.max(0,(Number(state.gold)||0)+sum);
-log('💰 ขายหลายรายการ '+chosen.length+' ชนิด ได้ '+sum.toLocaleString('th-TH')+' Gold','good');save();render();renderBag();closeModal();notify('✅ ขายสำเร็จ '+chosen.length+' ชนิด');}
+let saleBusy=false;
+async function sale(){
+ if(saleBusy)return;
+ const chosen=entries().filter(r=>selected.has(r.key));
+ if(!chosen.length){notify('ยังไม่ได้เลือกของที่จะขาย');return;}
+ if(!window.AMBER_V277?.ready?.()||!window.AMBER_V277?.invoke){notify('ต้องเชื่อม Supabase ก่อนขายของ');return;}
+ // Build item identifiers only. Price/ownership/stock are never accepted from the browser.
+ const items=chosen.map(r=>({
+  kind:r.kind,
+  key:r.kind==='bag'?String(state.bag?.[r.index]?.id||''):String(r.id||''),
+  quantity:Math.trunc(Number(r.qty)||0)
+ }));
+ if(items.some(x=>!x.key||x.quantity<1||x.quantity>1000)){
+  notify('จำนวนต่อกองต้องอยู่ระหว่าง 1–1,000 ชิ้น');return;
+ }
+ if(items.length>60){notify('ขายพร้อมกันได้ไม่เกิน 60 รายการ');return;}
+ const estimate=chosen.reduce((n,x)=>n+x.price*x.qty,0);
+ if(!confirm(`ยืนยันขาย ${items.length} ชนิดให้ NPC ผ่าน Supabase? (ประมาณ ${estimate.toLocaleString('th-TH')} Gold; เซิร์ฟเวอร์เป็นผู้กำหนดราคาจริง)`))return;
+ saleBusy=true;
+ try{
+   const result=await window.AMBER_V277.invoke('amber_v284_bulk_sell',{p_items:items});
+   // invoke() has already replaced local state using result.save returned by the DB.
+   selected.clear();closeModal();renderBag();renderTop();
+   notify('✅ Supabase ยืนยันขาย '+result.count+' ชนิด ได้ '+Number(result.amount||0).toLocaleString('th-TH')+' Gold');
+ }catch(e){
+   console.warn('[V28.4 server bulk sale]',e);
+   notify('❌ ขายไม่สำเร็จ ไม่มีการหักของ: '+String(e.message||e).slice(0,95));
+ }finally{saleBusy=false;}
+}
 const previous=openInventory;openInventory=function(){previous();const container=$('modalBody');if(!container)return;
 const b=document.createElement('button');b.textContent='💰 เลือกขายหลายชนิด';b.className='goldbtn';b.style.cssText='width:100%;margin-top:8px;min-height:44px';b.onclick=show;container.appendChild(b)};
 const st=document.createElement('style');st.textContent=`.amber23-bulk{max-height:50vh;overflow:auto}.amber23-bulkTools{display:flex;gap:8px;margin:8px 0}.amber23-bulkRow{display:flex;align-items:center;gap:10px;border:1px solid #645b4d;border-radius:8px;padding:8px;margin:5px 0;background:#14212c;min-height:51px}.amber23-bulkRow input{accent-color:#dfaf5b;width:19px;height:19px}.amber23-bulkRow span{display:flex;flex:1;min-width:0;flex-direction:column}.amber23-bulkRow small{color:#afc6d7}.amber23-bulkRow strong{white-space:nowrap;color:#ffcf85}`;document.head.appendChild(st);

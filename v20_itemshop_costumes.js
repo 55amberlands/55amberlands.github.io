@@ -32,14 +32,9 @@ function setup(){
  const s=state.shop20;
  if(!Array.isArray(s.owned))s.owned=[];
  if(!Object.hasOwn(s,'equipped'))s.equipped=null;
- if(s.grant2026!==true){
-   // All existing and newly created Google characters receive EXACTLY 99,999
-   // free beta Coin once. The wallet persists with their original cloud save.
-   state.gems=99999;
-   s.grant2026=true;
-   save();persist();
-   notify('🎁 รับฟรี 99,999 คอยล์แล้ว! เปิด Item Shop ได้เลย');
- }
+ // V28.4: never mint beta currency in a browser. The displayed balance
+ // comes from the loaded server save; all purchases require a validated RPC.
+ // Legacy grant2026 is kept for historical compatibility only.
  updateWallet();
  return true;
 }
@@ -104,7 +99,7 @@ function drawItems(){
  host.querySelectorAll('[data-am20-use]').forEach(b=>b.addEventListener('click',()=>usePotion(b.dataset.am20Use)));
 }
 function shopHTML(){
- return `<section class="amber20-wallet"><b>💠 ${fmt(state.gems)} คอยล์</b><small>🎁 ทุกบัญชีได้รับ 99,999 คอยล์ทดลองครั้งเดียว • ยังไม่มีระบบเติมเงิน</small></section>
+ return `<section class="amber20-wallet"><b>💠 ${fmt(state.gems)} คอยล์</b><small>🛡️ ยอดคอยล์และการซื้อทั้งหมดตรวจสอบผ่าน Supabase · ยังไม่มีระบบเติมเงินจริง</small></section>
  <h3>🪽 ปีกคอสตูมเพิ่ม EXP</h3><div class="amber20-grid" id="amber20ShopProducts"></div>
  <h3>📦 คลังไอเทม Item Shop</h3><div id="amber20Purchased"></div>
  <button id="amber20ManageWings">🧑 ดูช่องคอสตูม</button> <button id="amber21GoBag">🎒 เปิดกระเป๋าและสวมปีก</button>
@@ -115,50 +110,37 @@ function openShop(){
  openModal('💠 Item Shop · ร้านคอยล์',shopHTML());
  drawGoods();drawItems();$('amber20ManageWings')?.addEventListener('click',showCostumes);$('amber21GoBag')?.addEventListener('click',openInventory);
 }
-function purchase(sku){
- if(!setup())return;
- const g=findSku(sku);if(!g)return;
- if(!Number.isSafeInteger(Number(state.gems))||state.gems<g.price){notify('คอยล์ไม่พอ');return}
- if(inv().length>=120){notify('คลัง Item Shop เต็ม (120 รายการ)');return}
- if(!confirm(`ใช้ ${fmt(g.price)} คอยล์ซื้อ ${textFor(g)} ?`))return;
- // Free beta prototype. For real-money purchases replace with server-side RPC.
- state.gems-=g.price;
- const now=Date.now(),id='it_'+now.toString(36)+'_'+Math.random().toString(36).slice(2,10);
- inv().push({id,sku,at:new Date(now).toISOString(),expiresAt:g.type==='wing'?new Date(now+g.days*86400000).toISOString():null});
- persist();renderTop();renderBag();notify('✅ ซื้อ '+(WINGS[g.wing]?.name||g.name)+' สำเร็จ · เข้ากระเป๋าแล้ว');
- openShop();
+// V28.4 defense-in-depth: every item-shop action calls a server RPC directly.
+async function purchase(sku){
+ const g=findSku(sku);
+ if(!g||!ready())return notify('ต้องล็อกอิน Google และเชื่อม Supabase');
+ if(!confirm(`ใช้คอยล์ซื้อ ${textFor(g)} ผ่าน Supabase?`))return;
+ try{
+   if(!window.AMBER_V277?.invoke)throw Error('ต้องอัปเดตระบบ Supabase');
+   await window.AMBER_V277.invoke('amber_v277_economy',{p_action:'buy_shop',p_args:{sku}});
+   notify('✅ Supabase ยืนยันการซื้อ '+(WINGS[g.wing]?.name||g.name));openShop();
+ }catch(e){notify('ซื้อไม่สำเร็จ: '+String(e.message||e).slice(0,100))}
 }
-function equip(id){
- if(!setup())return;
- const p=inv().find(p=>p.id===id);
- if(!p){notify('ไม่พบคอสตูม');return}
- const g=findSku(p.sku),w=g&&WINGS[g.wing];
- if(!w||!p.expiresAt||Date.parse(p.expiresAt)<=Date.now()){notify('ปีกหมดอายุ');return}
- if(!levelOK(w)){notify(`ต้องมี Lv.${w.min}–${w.max} จึงใส่ปีกนี้ได้`);return}
- state.shop20.equipped=id;persist();renderScene();renderBag();updateWallet();
- window.dispatchEvent(new Event('amber-v19-location'));
- notify('🪽 สวม '+w.name+' · EXP ×'+w.x);
- if($('amber20Wardrobe'))showCostumes();else if($('amber20ShopProducts'))openShop();
+async function equip(id){
+ if(!ready()||!window.AMBER_V277?.invoke)return notify('ต้องเชื่อม Supabase');
+ try{await window.AMBER_V277.invoke('amber_v277_economy',{p_action:'equip_wing',p_args:{id}});
+   renderScene();renderBag();showCostumes();}
+ catch(e){notify('สวมปีกไม่ได้: '+String(e.message||e).slice(0,100))}
 }
-function unequip(){if(!setup())return;state.shop20.equipped=null;persist();renderScene();renderBag();updateWallet();window.dispatchEvent(new Event('amber-v19-location'));notify('ถอดปีกคอสตูมแล้ว');showCostumes()}
-function usePotion(id){
- if(!setup())return;
- const p=inv().find(p=>p.id===id),g=p&&findSku(p.sku);
+async function unequip(){
+ if(!ready()||!window.AMBER_V277?.invoke)return notify('ต้องเชื่อม Supabase');
+ try{await window.AMBER_V277.invoke('amber_v277_economy',{p_action:'equip_wing',p_args:{id:null}});
+   renderScene();renderBag();showCostumes();}
+ catch(e){notify('ถอดปีกไม่ได้: '+String(e.message||e).slice(0,100))}
+}
+async function usePotion(id){
+ if(!ready()||!window.AMBER_V277?.invoke)return notify('ต้องเชื่อม Supabase');
+ const p=inv().find(x=>x.id===id),g=p&&findSku(p.sku);
  if(!g||g.type==='wing')return;
- if(!confirm(`ใช้ ${g.name} 1 ขวด เพื่อคืนแต้มที่เคยเพิ่ม?`))return;
- if(g.type==='skill'){
-   const learned=Array.isArray(state.learned)?state.learned:[];
-   state.skillPoints=Math.max(0,Number(state.skillPoints)||0)+learned.length;
-   state.learned=[];
-   state.autoSkillSlots=Array(6).fill(null);
-   if(window.AMBER_V12)window.AMBER_V12.queuedSkill='';
- }else if(g.type==='stat'){
-   const spent=Object.entries(BASE_STATS).reduce((sum,[k,v])=>sum+Math.max(0,(Number(state.stats?.[k])||v)-v),0);
-   state.stats={...BASE_STATS};state.points=Math.max(0,Number(state.points)||0)+spent;
-   state.hp=Math.min(state.hp,maxHp());state.mp=Math.min(state.mp,maxMp());
- }
- state.shop20.owned=inv().filter(x=>x.id!==id);
- persist();render();renderBag();notify('✅ ใช้ '+g.name+' สำเร็จ');openShop();
+ if(!confirm(`ใช้ ${g.name} 1 ขวดผ่าน Supabase เพื่อคืนแต้มที่เคยเพิ่ม?`))return;
+ try{await window.AMBER_V277.invoke('amber_v277_recovery',{p_action:'consume_shop',p_id:id});
+   renderBag();notify('✅ Supabase ยืนยันการใช้ '+g.name);openShop();}
+ catch(e){notify('ใช้ไอเทมไม่ได้: '+String(e.message||e).slice(0,100))}
 }
 function statusHTML(){
  const w=activeWing(),selection=state.shop20?.equipped?inv().find(p=>p.id===state.shop20.equipped):null;
