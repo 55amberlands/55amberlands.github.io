@@ -74,7 +74,7 @@
   }
   async function claimLast() {
     const r = await claim(null);
-    const txt = r.ok ? '✅ เซิร์ฟเวอร์จ่ายรางวัล World Boss แล้ว'
+    const txt = r.ok ? '✅ เซิร์ฟเวอร์จ่ายรางวัลบอสแร่แล้ว'
       : r.reason === 'already_claimed' ? '✅ รับรางวัลรอบล่าสุดไปแล้ว'
       : '🛡️ ยังไม่ได้รับรางวัลจากเซิร์ฟเวอร์: ' + (r.reason || 'ไม่พบผลที่ยืนยัน');
     if (typeof notify === 'function') notify(txt);

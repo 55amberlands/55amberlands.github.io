@@ -151,6 +151,7 @@ function staffOps(s) {
 const BUILD = { 'ดาบ': swordOps, 'หมัด': clawOps, 'ธนู': bowOps, 'จอมเวท': staffOps };
 const memoOps = new Map();
 function build(spec) {
+  if (spec.ult && PX.ultWeapons) return PX.ultWeapons.build(spec); // V3014 ultimate asset on real weapon
   const k = [spec.cls, spec.tier | 0, spec.theme || 'normal', spec.seed | 0].join('|');
   let v = memoOps.get(k); if (!v) { v = (BUILD[spec.cls] || swordOps)(spec); memoOps.set(k, v); } return v;
 }
@@ -191,6 +192,7 @@ function stamp(dst, spec, x, y, ang = 0, o = {}) {
 }
 /* flame / frost / prism sparkles that follow the weapon (call per frame with time t in 0..1) */
 function fx(dst, spec, x, y, ang, t, sc = 1) {
+  if (spec.ult && PX.ultWeapons?.fx) return PX.ultWeapons.fx(dst, spec, x, y, ang, t, sc); // V3014 only actual +10 lightning
   // V3013_IN_HAND_ENHANCEMENT_FX: visual-only +7..+10 lights are rasterized
   // ON the weapon at its real grip angle. No DOM overlays / duplicate hero.
   const th = spec.theme || 'normal';

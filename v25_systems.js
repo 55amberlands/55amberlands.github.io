@@ -96,7 +96,7 @@ const TITLES = {
   reb1:   { name: 'ผู้เกิดใหม่',   cls: 'gold',  test: () => V().rebirth >= 1,   how: 'เกิดใหม่ 1 ครั้ง' },
   cards20:{ name: 'นักสะสมการ์ด', cls: 'ice',   test: () => totalCards() >= 20,  how: 'สะสมการ์ดมอนสเตอร์ 20 ใบ' },
   ck7:    { name: 'ขยันขันแข็ง',   cls: 'plain', test: () => V().checkin.day >= 7, how: 'เช็กอินครบ 7 วัน' },
-  wb1:    { name: 'ผู้กล้าบอสโลก', cls: 'fire',  test: () => V().wb.total > 0,    how: 'ชนะบอสโลกในช่วงกิจกรรม' }
+  wb1:    { name: 'ผู้กล้าบอสแร่', cls: 'fire',  test: () => V().wb.total > 0,    how: 'ชนะบอสแร่ในช่วงกิจกรรม' }
 };
 function refreshTitles() {
   const v = V(); let gain = [];
@@ -225,7 +225,7 @@ function onRaidWin() {
   const dmg = rd && rd.members && rd.members[0] ? rd.members[0].damage | 0 : 0;
   if (m) { const before = cardTier(m.name, true); v.ck[m.name] = (v.ck[m.name] | 0) + 1; if (cardTier(m.name, true) > before) onCardUp(m); }
   const w = wkey(); if (v.wb.week !== w) { v.wb.week = w; v.wb.dmg = 0; } v.wb.dmg += dmg;
-  if (wbWindow().open) safe(() => notify('🛡️ โบนัสบอสโลกรอเซิร์ฟเวอร์ตรวจผลก่อนจ่ายจริง'));
+  if (wbWindow().open) safe(() => notify('🛡️ โบนัสบอสแร่รอเซิร์ฟเวอร์ตรวจผลก่อนจ่ายจริง'));
   refreshTitles(); commit(); pushScore();
 }
 
@@ -246,8 +246,8 @@ let wbEl;
 function wbTick() {
   if (!S()) return; if (!wbEl) { wbEl = el('div', 'px25-wb', ''); wbEl.onclick = () => { if (wbWindow().open) { if (window.AMBER_V26) window.AMBER_V26.openArena(false); else wbJoin(); } else openHub('boss'); }; document.body.appendChild(wbEl); }
   const w = wbWindow(), n = Date.now(), f = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return pad(Math.floor(s / 60)) + ':' + pad(s % 60); };
-  if (w.open) { wbEl.className = 'px25-wb on'; wbEl.innerHTML = `<img src="${PX.ui.sparkURL()}" alt=""> 👑 บอสโลกเปิดแล้ว! เหลือ ${f(w.end - n)} <b>แตะเพื่อเข้าร่วม</b> (รางวัลคูณพิเศษ)`; }
-  else { const d = w.next - n; if (d < 30 * 60000) { wbEl.className = 'px25-wb soon'; wbEl.innerHTML = `👑 บอสโลกเริ่มใน ${f(d)}`; } else wbEl.className = 'px25-wb off'; }
+  if (w.open) { wbEl.className = 'px25-wb on'; wbEl.innerHTML = `<img src="${PX.ui.sparkURL()}" alt=""> 👑 บอสแร่เปิดแล้ว! เหลือ ${f(w.end - n)} <b>แตะเพื่อเข้าร่วม</b> (รางวัลคูณพิเศษ)`; }
+  else { const d = w.next - n; if (d < 30 * 60000) { wbEl.className = 'px25-wb soon'; wbEl.innerHTML = `👑 บอสแร่เริ่มใน ${f(d)}`; } else wbEl.className = 'px25-wb off'; }
 }
 setInterval(() => safe(wbTick), 1000);
 
@@ -458,7 +458,7 @@ function showShare(c) {
 
 /* ------------------------------------------------------------------ HUB UI */
 function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; if (cls && cls.includes('px25-modal')) document.body.appendChild(e); return e; }
-const TABS = [['checkin', '📅 เช็กอิน'], ['daily', '🎯 ภารกิจ'], ['boss', '👑 บอสโลก'], ['cards', '🃏 การ์ด'], ['titles', '🏷️ ฉายา'], ['rebirth', '🔥 เกิดใหม่'], ['guild', '🛡️ กิลด์'], ['board', '🏆 อันดับ'], ['invite', '🎁 ชวนเพื่อน'], ['share', '📸 แชร์']];
+const TABS = [['checkin', '📅 เช็กอิน'], ['daily', '🎯 ภารกิจ'], ['boss', '👑 บอสแร่'], ['cards', '🃏 การ์ด'], ['titles', '🏷️ ฉายา'], ['rebirth', '🔥 เกิดใหม่'], ['guild', '🛡️ กิลด์'], ['board', '🏆 อันดับ'], ['invite', '🎁 ชวนเพื่อน'], ['share', '📸 แชร์']];
 let curTab = 'checkin';
 function closeHub() { safe(() => closeModal()); }
 async function openHub(tab) {
@@ -485,7 +485,7 @@ async function tabDaily() {
 }
 function tabBoss() {
   const w = wbWindow(), ts = WB_HOURS.map(h => pad(h) + ':00').join(' · '), v = V();
-  return `<p class="px25-hint">👑 บอสโลกเกิดทุก 3 ชั่วโมง (เวลาไทย): <b>${ts} น.</b> ครั้งละ <b>${WB_MIN} นาที</b> · ตีจริงใช้ผล HP/ดาเมจและอันดับจาก Supabase เท่านั้น · รางวัล: <b>Gold 100,000 / 75,000 / 55,000 / 35,000</b> ตามอันดับ + โบนัส Gold ตามเลเวล, <b>แร่รุ้ง 5 / 4 / 3 / 2</b>, เพชรเพลิง ×1 และไข่มุก ×1 · <b>ไม่แจกคอยล์</b> · Auto Bot / Auto Skill / Auto Potion เปิด-ปิดในห้องบอส · โหมดซ้อมไม่ได้ของจริง</p><div class="px25-wbcard ${w.open ? 'on' : ''}"><img src="${PX.creatures.reg('จ้าวมังกรเพลิง')}" alt=""><div>${w.open ? '🔥 <b>เปิดอยู่ตอนนี้!</b>' : '⏳ รอบถัดไป ' + new Date(w.next).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}<br><small>ดาเมจสัปดาห์นี้: <b>${fmt(v.wb.week === wkey() ? v.wb.dmg : 0)}</b> · ชนะบอสโลก ${v.wb.total | 0} ครั้ง</small></div><button class="goldbtn" data-v25="wbjoin">⚔️ ${w.open ? 'เข้าร่วมเลย' : 'ดูห้องบอส (ซ้อม)'}</button><button data-v25="wbprac">🧪 ซ้อมดูมุมมอง</button><button data-v25="wbclaim">🏅 ตรวจรับรางวัลบอสล่าสุด</button><a href="./v27_3_safety_status.html" target="_blank" rel="noopener">🛡️ Safety Supabase</a></div>`;
+  return `<p class="px25-hint">👑 บอสแร่เกิดทุก 3 ชั่วโมง (เวลาไทย): <b>${ts} น.</b> ครั้งละ <b>${WB_MIN} นาที</b> · ตีจริงใช้ผล HP/ดาเมจและอันดับจาก Supabase เท่านั้น · รางวัล: <b>Gold 100,000 / 75,000 / 55,000 / 35,000</b> ตามอันดับ + โบนัส Gold ตามเลเวล, <b>แร่รุ้ง 5 / 4 / 3 / 2</b>, เพชรเพลิง ×1 และไข่มุก ×1 · <b>ไม่แจกคอยล์</b> · Auto Bot / Auto Skill / Auto Potion เปิด-ปิดในห้องบอส · โหมดซ้อมไม่ได้ของจริง</p><div class="px25-wbcard ${w.open ? 'on' : ''}"><img src="${PX.creatures.reg('จ้าวมังกรเพลิง')}" alt=""><div>${w.open ? '🔥 <b>เปิดอยู่ตอนนี้!</b>' : '⏳ รอบถัดไป ' + new Date(w.next).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}<br><small>ดาเมจสัปดาห์นี้: <b>${fmt(v.wb.week === wkey() ? v.wb.dmg : 0)}</b> · ชนะบอสแร่ ${v.wb.total | 0} ครั้ง</small></div><button class="goldbtn" data-v25="wbjoin">⚔️ ${w.open ? 'เข้าร่วมเลย' : 'ดูห้องบอส (ซ้อม)'}</button><button onclick="window.AMBER_V28_HUB && window.AMBER_V28_HUB.open('select')">🐉 บอสโลกใหม่ 10 ตัว</button><button data-v25="wbprac">🧪 ซ้อมดูมุมมอง</button><button data-v25="wbclaim">🏅 ตรวจรับรางวัลบอสล่าสุด</button><a href="./v27_3_safety_status.html" target="_blank" rel="noopener">🛡️ Safety Supabase</a></div>`;
 }
 function tabCards() {
   const mons = MON(); let own = 0; const cells = mons.map(m => {
