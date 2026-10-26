@@ -114,7 +114,7 @@ const CSS = `
 .px28h-fr div.ok{border-color:#4aff9a}`;
 if (!$('px28-hub-css')) { const st = document.createElement('style'); st.id = 'px28-hub-css'; st.textContent = CSS; document.head.appendChild(st); }
 
-function tabs() { return `<div class="px28h-tabs">${[['select', '🐉 เลือกบอส'], ['book', '📖 สมุดบอส'], ['exchange', '⚡ แลกอาวุธตำนาน']].map(([k, n]) => `<button data-h28tab="${k}" class="${TAB === k ? 'on' : ''}">${n}</button>`).join('')}</div>`; }
+function tabs() { return `<div class="px28h-tabs">${[['select', '🐉 เลือกบอส'], ['book', '📖 สมุดบอส'], ['exchange', '⚡ แลกอาวุธตำนาน'], ['legacy', '👑 บอสเดิม']].map(([k, n]) => `<button data-h28tab="${k}" class="${TAB === k ? 'on' : ''}">${n}</button>`).join('')}</div>`; }
 function srvNote() {
   if (!ready()) return '<div class="px28h-note">🔒 ล็อกอินเพื่อเข้าสู้จริง เก็บเศษบอส และแลกอาวุธ — ถ้ายังไม่ล็อกอินจะเล่น <b>โหมดซ้อม</b> ได้อย่างเดียว (ไม่ได้รางวัล)</div>';
   if (installed === false) return '<div class="px28h-note">🛠️ เซิร์ฟเวอร์ยังไม่ได้ติดตั้งระบบบอสโลก V28 — โหมดซ้อมใช้ได้ปกติ ส่วนสู้จริง/เศษบอส/แลกอาวุธจะเปิดเมื่อติดตั้งฝั่ง Supabase แล้ว</div>';
@@ -143,7 +143,18 @@ function pageExchange() {
     <div class="px28h-fr">${LIST.map(b => { const n = fcount('frag_' + b.id); return `<div class="${n >= NEED ? 'ok' : ''}" style="--c:${b.col}"><img src="${fragIcon(b)}" style="height:13px;image-rendering:pixelated;vertical-align:-2px"> ${esc(b.frag.name)}<br><b>${n}/${NEED}</b></div>`; }).join('')}</div>
     <button class="px28h-btn" data-h28ex="${esc(cls)}" ${(all && ready() && installed !== false && !has) ? '' : 'disabled'}>${has ? '✅ มีอาวุธสายนี้แล้ว' : '⚡ แลกอาวุธ'}</button></div>`; }).join('')}`;
 }
-function render() { const b = $('modalBody'); if (!b || !b.querySelector('#px28hub')) return; b.querySelector('#px28hub').innerHTML = tabs() + (TAB === 'book' ? pageBook() : TAB === 'exchange' ? pageExchange() : pageSelect()); }
+function pageLegacy(){
+  const w=winOpen(),v=window.AMBER_V25?.V?.()||{};
+  const next=w.open?'กำลังเปิดรอบบอส':('รอบถัดไป '+(w.next?new Date(w.next).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}):'—'));
+  return `<div class="px28h-note"><b>👑 ห้องบอสโลกเดิม V27.3</b><br>คงค่ารางวัลและสิทธิ์เดิมจาก Supabase ไว้โดยไม่รวมยอด HP กับบอสใหม่ทั้ง 10 ตัว<br>สถานะ: <b>${esc(next)}</b> · รับรางวัลผ่านเซิร์ฟเวอร์เท่านั้น</div>
+  <div class="px28h-w"><b>จ้าวมังกรเพลิง (ระบบเดิม)</b><br><small>อยู่ในหน้าบอสโลกเดียวกันแล้ว ไม่มีกล่องบอสเก่าลอยทับหน้าเกม</small>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+   <button data-h28legacygo="1" class="px28h-btn" ${w.open&&ready()?'':'disabled'}>⚔️ เข้าสู้บอสเดิม</button>
+   <button data-h28legacypractice="1" class="px28h-btn alt">🧪 ซ้อมบอสเดิม</button>
+   <button data-h28legacyclaim="1" class="px28h-btn alt">🏅 ตรวจรับรางวัลเดิม</button>
+  </div></div>`;
+}
+function render() { const b = $('modalBody'); if (!b || !b.querySelector('#px28hub')) return; b.querySelector('#px28hub').innerHTML = tabs() + (TAB === 'book' ? pageBook() : TAB === 'exchange' ? pageExchange() : TAB === 'legacy' ? pageLegacy() : pageSelect()); }
 async function openHub(tab) {
   TAB = tab || TAB; if (typeof openModal !== 'function') return;
   openModal('🐉 บอสโลก', '<div id="px28hub"></div>'); render();
@@ -151,8 +162,11 @@ async function openHub(tab) {
 }
 
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-h28tab],[data-h28go],[data-h28prac],[data-h28ex]'); if (!t) return;
+  const t = e.target.closest('[data-h28tab],[data-h28go],[data-h28prac],[data-h28ex],[data-h28legacygo],[data-h28legacypractice],[data-h28legacyclaim]'); if (!t) return;
   if (t.dataset.h28tab) { TAB = t.dataset.h28tab; render(); return; }
+  if(t.dataset.h28legacygo){closeModal();window.AMBER_V26?.openArena?.(false,{_hub:1});return;}
+  if(t.dataset.h28legacypractice){closeModal();window.AMBER_V26?.openArena?.(true,{_hub:1});return;}
+  if(t.dataset.h28legacyclaim){await window.AMBER_V273?.claimLast?.();return;}
   if (t.dataset.h28prac) { closeModal(); window.AMBER_V26 && AMBER_V26.openArena(true, { bossId: t.dataset.h28prac, api: null, _hub: 1 }); return; }
   if (t.dataset.h28go) { closeModal(); window.AMBER_V26 && AMBER_V26.openArena(false, { bossId: t.dataset.h28go, api: S, _hub: 1 }); return; }
   if (t.dataset.h28ex) {

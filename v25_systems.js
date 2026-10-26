@@ -59,7 +59,7 @@ const MON = () => safe(() => MONS, []) || [];
 const CARD_T = [25, 100, 400, 1500], BOSS_T = [1, 5, 15, 40];
 const STAT4 = [['ATK', 5, 'โจมตี'], ['DEF', 3, 'ป้องกัน'], ['HP', 65, 'HP'], ['MP', 30, 'MP']];
 const TMULT = [0, 1, 2, 3.5, 6];
-const cardTier = (name, boss) => { const k = V().ck[name] | 0, T = boss ? BOSS_T : CARD_T; let t = 0; for (let i = 0; i < 4; i++) if (k >= T[i]) t = i + 1; return t; };
+const cardTier = (name, boss) => { const k = window.AMBER_V303_CARDS?.count?.(name,boss) ?? (V().ck[name] | 0), T = boss ? BOSS_T : CARD_T; let t = 0; for (let i = 0; i < 4; i++) if (k >= T[i]) t = i + 1; return t; };
 function cardBonus(m, t) { const h = PX.hash(m.name) % 4, [k, base] = STAT4[h]; return { k, v: Math.round(base * TMULT[t] * (m.boss ? 3 : 1)), label: STAT4[h][2] }; }
 function totalCards() { let n = 0; for (const m of MON()) if (cardTier(m.name, m.boss) > 0) n++; return n; }
 function eqPieces() {
@@ -211,7 +211,7 @@ function installHooks() {
     tick = function () {
       const st = S(), k = st ? st.kills : 0, m = safe(() => mob(), null), name = m && m.name, rd = typeof raid !== 'undefined' ? raid : null;
       t0.apply(this, arguments);
-      if (st && st.kills > k && name && !rd) { const n = st.kills - k, v = V(); const before = cardTier(name, m.boss); v.ck[name] = (v.ck[name] | 0) + n; bump('kill', n); if (cardTier(name, m.boss) > before) onCardUp(m); }
+      if (st && st.kills > k && name && !rd && !(window.AMBER_CLOUD?.getStatus?.()?.cloudReady)) { const n = st.kills - k, v = V(); const before = cardTier(name, m.boss); v.ck[name] = (v.ck[name] | 0) + n; bump('kill', n); if (cardTier(name, m.boss) > before) onCardUp(m); }
     };
   });
   safe(() => { const lg = log; log = function (msg, t) { lg.apply(this, arguments); if (typeof msg === 'string' && /^🏆 กำจัด /.test(msg)) onRaidWin(); }; });
@@ -223,7 +223,7 @@ function onCardUp(m) { const t = cardTier(m.name, m.boss), c = cardBonus(m, t); 
 function onRaidWin() {
   const v = V(), rd = typeof raid !== 'undefined' ? raid : null, m = safe(() => mob(), null); v.stat.raids++; bump('raid');
   const dmg = rd && rd.members && rd.members[0] ? rd.members[0].damage | 0 : 0;
-  if (m) { const before = cardTier(m.name, true); v.ck[m.name] = (v.ck[m.name] | 0) + 1; if (cardTier(m.name, true) > before) onCardUp(m); }
+  if (m && !(window.AMBER_CLOUD?.getStatus?.()?.cloudReady)) { const before = cardTier(m.name, true); v.ck[m.name] = (v.ck[m.name] | 0) + 1; if (cardTier(m.name, true) > before) onCardUp(m); }
   const w = wkey(); if (v.wb.week !== w) { v.wb.week = w; v.wb.dmg = 0; } v.wb.dmg += dmg;
   if (wbWindow().open) safe(() => notify('🛡️ โบนัสบอสโลกรอเซิร์ฟเวอร์ตรวจผลก่อนจ่ายจริง'));
   refreshTitles(); commit(); pushScore();
@@ -404,6 +404,7 @@ function closeHub() { safe(() => closeModal()); }
 async function openHub(tab) {
   curTab = tab || curTab; ensureDaily(); refreshTitles();
   if (curTab === 'checkin' && window.AMBER_V27) await window.AMBER_V27.syncState(true);
+  if (curTab === 'cards') await window.AMBER_V303_CARDS?.refresh?.(true);
   const tabs = `<div class="px25-tabs">${TABS.map(([id, t]) => `<button data-v25tab="${id}" class="${id === curTab ? 'on' : ''}">${t}</button>`).join('')}</div>`;
   openModal('🎯 กิจกรรม & ระบบเสริม', tabs + '<div id="px25Body" class="px25-body"><p class="px25-hint">กำลังโหลด…</p></div>');
   const body = $('px25Body'); if (!body) return;
@@ -429,7 +430,7 @@ function tabBoss() {
 }
 function tabCards() {
   const mons = MON(); let own = 0; const cells = mons.map(m => {
-    const t = cardTier(m.name, m.boss), k = V().ck[m.name] | 0, T = m.boss ? BOSS_T : CARD_T, nx = T[Math.min(3, t)]; if (t) own++;
+    const t = cardTier(m.name, m.boss), k = window.AMBER_V303_CARDS?.count?.(m.name,m.boss) ?? (V().ck[m.name] | 0), T = m.boss ? BOSS_T : CARD_T, nx = T[Math.min(3, t)]; if (t) own++;
     const c = t ? cardBonus(m, t) : cardBonus(m, 1);
     // V26.1: Present the exact bonuses calculated by the existing card system.
     // Information only: card thresholds, stat calculation and saved data stay unchanged.
