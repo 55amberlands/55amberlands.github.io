@@ -621,7 +621,7 @@ async function tabCards() {
       const rank = i + 1, bonus = cardBonus(m, rank), reached = t >= rank;
       return `<div>${reached ? '✅' : '🔒'} ${esc(levelName(rank))} (${kills} ${m.boss ? 'ครั้ง' : 'ตัว'}) — ${esc(bonus.label)} +${fmt(bonus.v)}</div>`;
     }).join('');
-    const now = t ? `ได้รับแล้ว: ${esc(c.label)} +${fmt(c.v)} (ใช้แสดงผลอัลบั้ม; โบนัสการต่อสู้รอยืนยันสูตรเซิร์ฟเวอร์)` : 'ยังไม่ได้รับโบนัส — ปลดล็อกระดับแรกเพื่อรับค่าสถานะ';
+    const now = t ? `ได้รับแล้ว: ${esc(c.label)} +${fmt(c.v)} (โบนัสจากการ์ดมีผลจริงในสูตรคำนวณเซิร์ฟเวอร์ Supabase)` : 'ยังไม่ได้รับโบนัส — ปลดล็อกระดับแรกเพื่อรับค่าสถานะ';
     const next = t >= 4 ? 'สะสมครบระดับรุ้งแล้ว' : `อีก ${Math.max(0, T[t] - k)} ${m.boss ? 'ครั้ง' : 'ตัว'} จะถึงระดับ${esc(levelName(t + 1))}`;
     return `<div class="px25-card${t ? '' : ' lock'}"><img src="${PX.ui.cardURL(m.name, t || 1, !t)}" alt=""><b>${esc(m.name)}</b><small>${t ? PX.ui.RARITY[t].name + ' · ' + c.label + ' +' + c.v : 'ยังไม่ได้การ์ด'}</small><div class="px25-pb"><i style="width:${t >= 4 ? 100 : Math.round(100 * k / nx)}%"></i><span>${k}/${t >= 4 ? 'MAX' : nx}</span></div><details class="px25-cardinfo"><summary>ดูรายละเอียดโบนัส</summary><div>${now}</div><div>${next}</div>${tiers}</details></div>`;
   }).join('');
