@@ -148,10 +148,10 @@ let titleSyncBusy = null;
 /* AMBER_V3017_TITLE_ONLY_FIXED: IDs remain unchanged; visual title names
  * are distinct from weapon names. This is display-only and server-authorized. */
 const ULT_NAMES = {
-  ult_fist:'⚡ จ้าวแห่งอสุนี',
-  ult_sword:'⚡ ราชันพายุ',
-  ult_bow:'⚡ ผู้ล่าเมฆา',
-  ult_staff:'⚡ มหาเวทอัสนี'
+  ult_fist:'⚡ ราชันกรงเล็บอัสนี',
+  ult_sword:'⚡ จักรพรรดิดาบสายฟ้า',
+  ult_bow:'⚡ เทพพรานวชิระ',
+  ult_staff:'⚡ จอมเวทอัสนีนิรันดร์'
 };
 const V3016_ULT_JOB = {
   ult_fist:'หมัด', ult_sword:'ดาบ', ult_bow:'ธนู', ult_staff:'จอมเวท'
@@ -763,7 +763,7 @@ function start() {
   ensureDaily(); installHooks(); mount(); refreshTitles(); setTimeout(() => { refresh(); paintDot(); }, 900);
   safe(() => { const r = localStorage.getItem('amber_v25_ref'); if (r) { const v = V(); if (!v.ref.hint) { v.ref.hint = r; } } });
   setInterval(() => { ensureDaily(); paintDot(); refreshTitles();
-    if (online() && !serverTitles) void syncServerTitles().then(()=>safe(decorateScene)).catch(e=>console.warn('[V3015 title initial]',e));
+    if (online() && (!serverTitles || Date.now()-serverTitlesStamp>30000)) void syncServerTitles(true).then(()=>safe(decorateScene)).catch(e=>console.warn('[V3015 title initial]',e));
     if (online() && Date.now()-verifiedCardStamp>60000 && !verifiedCardsBusy) void syncVerifiedCards().catch(e=>console.warn('[V3015 card initial]',e));
   }, 15000);
 }
