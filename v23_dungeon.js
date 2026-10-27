@@ -263,14 +263,47 @@ async function reviveDungeon(){
  }catch(e){error(e)}finally{reviveBusy=false;}
 }
 async function newDungeon(){
- if(room?.status!=='finished')return;
- // Cooldown is per-dungeon: allow switching to the other dungeon immediately.
- // The server checks the selected dungeon timer before creating a new room.
- try{const rs=await rpc('rewards',{p_room:id});
-   if((rs||[]).some(r=>!r.claimed_at)){rewardsCache=rs;refreshControls();announce('🎁 กรุณารับรางวัลจากหีบก่อนเริ่มรอบใหม่');return;}
- }catch(e){error(e);return;}
- stopAuto();view=false;id='';room=null;rewardsCache=null;cooldownUntil=0;
- localStorage.removeItem(roomKey());homePanel();renderScene();open();
+ if(room?.status!=='finished'||busy)return;
+ // Only a real unclaimed loot reward should block leaving. Empty rolls are
+ // auto-acknowledged by the EXISTING server claim RPC (not by client writes).
+ const finishedRoom=id;
+ busy=true;
+ try{
+   const rs=await rpc('rewards',{p_room:finishedRoom});
+   if(!Array.isArray(rs))throw new Error('ไม่สามารถตรวจสอบรางวัลจากเซิร์ฟเวอร์');
+   const known=['best','stones','weapon','stone_kind','weapon_class','gear_drops','ore_kind','ore_amount','ore_prism'];
+   let hasUnclaimedLoot=false;
+   for(const entry of rs){
+     if(entry.claimed_at)continue;
+     const reward=entry.reward||{};
+     const knownOnly=Object.keys(reward).every(k=>known.includes(k));
+     const empty=knownOnly && !reward.weapon &&
+       !(Number(reward.stones)>0) && !(Number(reward.ore_amount)>0) &&
+       !(Number(reward.ore_prism)>0) &&
+       (!Array.isArray(reward.gear_drops)||reward.gear_drops.length===0);
+     if(!empty){hasUnclaimedLoot=true;continue;}
+     if(!entry.id)throw new Error('ข้อมูลรางวัลว่างไม่มีรหัสยืนยัน');
+     await rpc('claim',{p_reward:entry.id});
+   }
+   if(id!==finishedRoom||room?.status!=='finished')return;
+   if(hasUnclaimedLoot){
+     rewardsCache=await rpc('rewards',{p_room:finishedRoom});
+     refreshControls();
+     announce('🎁 ยังมีไอเทมในหีบ กรุณากดรับรางวัลก่อนเลือกดันเจียนถัดไป');
+     return;
+   }
+   // Do not lose an unclaimed reward if another client updated this room.
+   const finalRewards=await rpc('rewards',{p_room:finishedRoom});
+   if(!Array.isArray(finalRewards)||finalRewards.some(r=>!r.claimed_at)){
+     rewardsCache=finalRewards;
+     refreshControls();
+     announce('🎁 กรุณารับรางวัลที่เหลือก่อนเปลี่ยนดันเจียน');
+     return;
+   }
+   stopAuto();view=false;id='';room=null;rewardsCache=null;cooldownUntil=0;
+   localStorage.removeItem(roomKey());homePanel();renderScene();open();
+ }catch(e){error(e);}
+ finally{busy=false;}
 }
 // Keep the normal bag and potion UI, but only the server may heal combat HP inside dungeon.
 const normalUsePotion=usePotion;
