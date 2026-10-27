@@ -89,8 +89,8 @@ window.tick=async function v283ServerTick(){
        const pops=sc?.querySelectorAll('.damage');
        const last=pops?.[pops.length-1];
        if(last){
-         last.textContent='✦ CRITICAL! ✦ '+Math.round(Number(r.damage)).toLocaleString('th-TH');
-         last.style.cssText+=';font-size:24px;font-weight:1000;color:#fff1a8;background:linear-gradient(130deg,#58340d,#9c6516,#482609);border:2px solid #ffda79;border-radius:8px;padding:4px 8px;box-shadow:0 0 14px #ffcc66;white-space:nowrap;text-shadow:1px 2px 2px #1a0b04;z-index:55;';
+         last.textContent='✦ CRIT '+Math.round(Number(r.damage)).toLocaleString('th-TH');
+         last.style.cssText+=';font-size:13px;font-weight:800;color:#fff1a8;background:#58340ddd;border:1px solid #ffda79;border-radius:5px;padding:2px 4px;box-shadow:0 0 6px #ffcc6688;max-width:155px;white-space:nowrap;text-shadow:1px 1px 1px #1a0b04;z-index:3;pointer-events:none;';
        }
      }
      if(picked)window.AMBER_FX?.onAttack?.(picked,Number(r.damage),m);
@@ -131,7 +131,7 @@ if(typeof legacyStart==='function')window.start=function v283Start(){
  legacyStart();
  if(state.auto && typeof timer!=='undefined' && timer){
    clearInterval(timer);
-   timer=setInterval(()=>window.tick(),Math.max(840,Math.round(925-(Number(state.stats?.AGI)||0)*2)));
+   timer=setInterval(()=>window.tick(),Math.max(785,Math.round(830-(Number(state.stats?.AGI)||0)*1.5)));
  }
 };
 // Save the exact 6 chosen slots on Supabase, not inside the writable legacy save.
