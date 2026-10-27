@@ -100,7 +100,11 @@
    const m=typeof mob==='function'?mob():null;
    if(!boss(m))return oldStart?.();
    if(left(m.id)){tell('🔒 '+m.name+' จะเกิดใหม่ใน '+countdown(m.id));paint();return;}
-   if(!(await chosenCheck))return;
+   if(!(await chosenCheck)){
+     // Retry a fresh server status rather than permanently blocking this target.
+     try{const again=await status(m.id);if(again.respawning)return;}
+     catch(err){tell('⚠️ ตรวจเวลาบอสไม่ได้: '+String(err?.message||err).slice(0,70));return;}
+   }
    try{
      const answer=await status(m.id);
      if(answer.respawning){tell('🔒 '+m.name+' จะเกิดใหม่ใน '+countdown(m.id));return;}
