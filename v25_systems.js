@@ -145,11 +145,13 @@ let titleSyncBusy = null;
  * In V3015 a client-side placeholder with cls:'rain' prevented V28.addTitles()
  * from registering its own lightning title graphics. No client-side unlocks here.
  */
+/* AMBER_V3017_TITLE_ONLY_FIXED: IDs remain unchanged; visual title names
+ * are distinct from weapon names. This is display-only and server-authorized. */
 const ULT_NAMES = {
-  ult_fist:'⚡ ราชันกรงเล็บอัสนี',
-  ult_sword:'⚡ จักรพรรดิดาบสายฟ้า',
-  ult_bow:'⚡ เทพพรานวชิระ',
-  ult_staff:'⚡ จอมเวทอัสนีนิรันดร์'
+  ult_fist:'⚡ จ้าวแห่งอสุนี',
+  ult_sword:'⚡ ราชันพายุ',
+  ult_bow:'⚡ ผู้ล่าเมฆา',
+  ult_staff:'⚡ มหาเวทอัสนี'
 };
 const V3016_ULT_JOB = {
   ult_fist:'หมัด', ult_sword:'ดาบ', ult_bow:'ธนู', ult_staff:'จอมเวท'
@@ -207,19 +209,10 @@ function activeTitleId() {
 }
 function titleHTML(id, small) {
   const t = TITLES[id]; if (!t) return '';
-  const v28cls = V3016_ULT_JOB[id];
-  if (v28cls) {
-    // Actual V28 weapon art + the ORIGINAL V28 electric title/frame, not a new
-    // V25 rainbow-label substitute. The cache ensures no 500ms animation reset.
-    let icon = v3016TitleIcons[id] || '';
-    if (!icon) {
-      try { icon = window.AMBER_V28_ULT?.icon?.(v28cls) || ''; } catch(e) { icon=''; }
-      if (icon) v3016TitleIcons[id] = icon;
-    }
-    const name = window.AMBER_V28_ULT?.DEFS?.[v28cls]?.title;
-    const display = name ? '⚡ '+name : t.name;
-    const img = icon ? `<img class="px3016-v28-icon" src="${esc(icon)}" alt="">` : '';
-    return `<span class="px25-title t-bolt px28-ult-frame px3016-v28-badge${small ? ' sm' : ''}">${img}<b>${esc(display)}</b></span>`;
+  if (V3016_ULT_JOB[id]) {
+    // V3017: only the TITLE, never the equipment icon or equipment name.
+    // Original V28 t-bolt + electric frame style is kept unchanged.
+    return `<span class="px25-title t-bolt px28-ult-frame px3016-v28-badge${small ? ' sm' : ''}"><b>${esc(t.name)}</b></span>`;
   }
   return `<span class="px25-title t-${t.cls}${small ? ' sm' : ''}"><img class="px25-sp l" src="${PX.ui.sparkURL()}" alt=""><b>${esc(t.name)}</b><img class="px25-sp r" src="${PX.ui.sparkURL()}" alt=""></span>`;
 }
@@ -733,15 +726,32 @@ const css = document.createElement('style'); css.textContent = `
 #px25EmoBtn{position:fixed;right:10px;bottom:84px;z-index:8000;width:44px;height:44px;border-radius:50%;border:2px solid #ffd24a;background:#2a1850;font-size:20px;padding:0;cursor:pointer}#px25EmoPanel{display:none;position:fixed;right:10px;bottom:134px;z-index:8000;background:#1a0e33;border:2px solid #ffd24a;border-radius:12px;padding:6px;grid-template-columns:repeat(4,1fr);gap:4px}#px25EmoPanel.on{display:grid}#px25EmoPanel button{padding:2px;background:#2a1850;border:1px solid #6a3aa8;border-radius:8px}#px25EmoPanel img{width:38px;height:40px;image-rendering:pixelated;display:block}
 .px25-modal{position:fixed;inset:0;z-index:99990;background:#000a;display:flex;align-items:center;justify-content:center;padding:12px}.px25-offl,.px25-sharebox{background:#1a0e33;border:2px solid #ffd24a;border-radius:14px;padding:16px;text-align:center;max-width:380px;max-height:94vh;overflow:auto;box-shadow:0 0 24px #ff9aff66}.px25-offl img{width:56px;height:56px;image-rendering:pixelated}.px25-sharebox img{max-width:100%;max-height:68vh;image-rendering:pixelated}.px25-sharebox .row{display:flex;gap:6px;justify-content:center;margin-top:8px}
 `;
-// V30.1.6: use genuine V28 weapon art inside the lightning title badge.
-// Kept inside the existing title markup: NOT a new player Sprite layer.
+// AMBER_V3017_TITLE_PLAQUE_HORIZONTAL: Fix V3016 portrait-column wrapping.
+// Limit rules to the verified V28 lightning title only; hero, wings and aura
+// use their existing V3013 layers and remain untouched.
 css.textContent += `
-.px25-title.px3016-v28-badge{display:inline-flex!important;align-items:center!important;gap:7px!important;max-width:min(100%,350px)!important;white-space:normal!important;line-height:1.28!important;overflow:visible!important;padding:4px 9px!important;isolation:isolate}
-.px25-title.px3016-v28-badge.sm{font-size:10.5px!important;gap:4px!important;padding:2px 6px!important}
-.px25-title.px3016-v28-badge>.px3016-v28-icon{width:29px!important;height:29px!important;min-width:29px!important;max-width:none!important;aspect-ratio:auto!important;object-fit:contain!important;image-rendering:pixelated!important;box-shadow:0 0 8px #4ae8ff88!important;border:0!important;position:relative!important;z-index:1!important}
-.px25-title.px3016-v28-badge.sm>.px3016-v28-icon{width:19px!important;height:19px!important;min-width:19px!important}
-.px25-title.px3016-v28-badge>b{position:relative;z-index:2;overflow-wrap:anywhere;white-space:normal}
-.px25-plate .px3016-v28-badge{max-width:230px!important}
+.px25-title.px3016-v28-badge{
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;
+  box-sizing:border-box!important;width:max-content!important;max-width:none!important;
+  min-width:max-content!important;flex:0 0 auto!important;
+  white-space:nowrap!important;overflow-wrap:normal!important;word-break:keep-all!important;
+  line-height:1.25!important;overflow:visible!important;padding:4px 11px!important;
+  font-size:13px!important;isolation:isolate
+}
+.px25-title.px3016-v28-badge.sm{font-size:11px!important;padding:3px 8px!important}
+.px25-title.px3016-v28-badge>b{
+  position:relative;z-index:2;display:inline-block!important;
+  width:max-content!important;max-width:none!important;white-space:nowrap!important;
+  overflow-wrap:normal!important;word-break:keep-all!important;flex:0 0 auto!important
+}
+/* Parent is just 78px wide on mobile. Its badge MUST be free to grow sideways. */
+#sprites .sprite>.px25-plate:has(.px3016-v28-badge){
+  position:absolute!important;left:50%!important;transform:translateX(-50%)!important;
+  width:max-content!important;min-width:max-content!important;max-width:none!important;
+  white-space:nowrap!important;bottom:calc(100% + 5px)!important;
+  z-index:12!important;pointer-events:none!important;overflow:visible!important
+}
+@media(max-width:380px){#sprites .sprite>.px25-plate .px3016-v28-badge.sm{font-size:10px!important;padding:3px 6px!important}}
 `;
 document.head.appendChild(css);
 function mount() {
