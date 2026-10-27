@@ -46,7 +46,7 @@
      if(typeof log==='function')log('⚔️ เริ่มสู้ '+m.name+' · ดาเมจและรางวัลตรวจโดย Supabase','sys');
      if(typeof renderScene==='function')renderScene();
      if(typeof timer!=='undefined'&&timer)clearInterval(timer);
-     if(typeof timer!=='undefined')timer=setInterval(()=>window.tick?.(),Math.max(840,Math.round(925-(Number(state.stats?.AGI)||0)*2)));
+     if(typeof timer!=='undefined')timer=setInterval(()=>window.tick?.(),Math.max(785,Math.round(830-(Number(state.stats?.AGI)||0)*1.5)));
      void window.tick?.();
    }catch(err){message('⚠️ ไม่สามารถเริ่มตีบอส: '+String(err?.message||err).slice(0,80));}
  };
