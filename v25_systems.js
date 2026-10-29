@@ -345,7 +345,7 @@ function wbWindow() {
   return { open: !!open, end: open ? open.e : 0, next };
 }
 function wbJoin() {
-  const st = S(); const cand = MON().filter(m => m.boss && st.lv >= m.lv - 5).sort((a, b) => b.lv - a.lv)[0];
+  const st = S(); const cand = MON().filter(m => m.boss && (st.lv >= m.lv - 5 || Number(st.v25?.rebirth||0)>0)).sort((a, b) => b.lv - a.lv)[0];
   if (!cand) { safe(() => notify('ยังไม่มีบอสที่เลเวลถึง (ต้อง Lv ≥ บอส-5)')); return; }
   safe(() => { if (st.map !== cand.map) chooseMap(cand.map); bossAvailable = true; bossMap = state.map; if (typeof raid === 'undefined' || !raid) openRaid(); });
   closeHub();
