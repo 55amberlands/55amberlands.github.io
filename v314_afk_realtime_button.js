@@ -5,6 +5,14 @@
 (()=>{
 'use strict';
 if(window.AMBER_V314_AFK_BUTTON)return;
+// V31.5: One AFK interface only. The canonical V312 module mounts the scene control.
+if(window.AMBER_V312){
+ window.AMBER_V314_AFK_BUTTON={
+   open:()=>window.AMBER_V312?.open?.(),
+   refresh:()=>window.AMBER_V312?.refresh?.()
+ };
+ return;
+}
 const $=id=>document.getElementById(id);
 const afk=()=>window.AMBER_V312;
 const ready=()=>!!(window.AMBER_CLOUD?.getClient?.()&&window.AMBER_CLOUD?.getStatus?.()?.cloudReady);
