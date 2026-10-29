@@ -12,6 +12,10 @@ const $=id=>document.getElementById(id);
 const fmt=x=>Math.max(0,Number(x)||0).toLocaleString('th-TH');
 function toast(s){try{notify(s)}catch(e){console.info('[AFK]',s)}}
 const css=`
+#amber312-quick{flex:1 1 180px!important;min-height:52px!important;background:linear-gradient(120deg,#1d5262,#114e42)!important;color:#f5fff7!important;border:2px solid #8feec5!important;border-radius:10px!important;font:900 14px/1.3 system-ui!important;box-shadow:0 0 12px #33e8ad44!important}
+#amber312-quick.amber312-on,#amber312-scene.amber312-on{border-color:#d4ff8a!important;background:linear-gradient(130deg,#1b6348,#164c36)!important}
+#amber312-scene{position:absolute!important;right:7px!important;bottom:7px!important;z-index:65!important;min-height:36px!important;padding:5px 9px!important;border:2px solid #8feec5!important;border-radius:10px!important;background:#103b3de8!important;color:#fafff1!important;font:900 11px/1.2 system-ui!important;box-shadow:0 2px 9px #0018!important;pointer-events:auto!important;max-width:150px!important}
+#amber312-scene:active,#amber312-quick:active{transform:scale(.97)}
 #amber312-panel{background:#0c1932;color:#f0f4ff;border:1px solid #86b5f6;border-radius:12px;padding:12px;margin:14px 0;font:13px/1.5 system-ui}
 #amber312-panel h3{color:#ffe497;font:900 18px system-ui;margin:0 0 7px}
 #amber312-panel p{margin:7px 0}
@@ -46,6 +50,13 @@ function statusText(){
  return (last.active?'🟢 เซิร์ฟเวอร์กำลังฟาร์ม':'🎁 มีรางวัลที่ยังไม่ได้รับ')+' · '+String(last.monster_name||last.monster_id||'')+time+' · '+progress+extra;
 }
 function redraw(){
+ for(const id of ['amber312-quick','amber312-scene']){
+  const btn=$(id);if(!btn)continue;
+  btn.classList.toggle('amber312-on',!!last?.active);
+  btn.textContent=last?.active?'🟢 บอทปิดจอทำงาน':(Number(last?.pending_kills)>0?'🎁 รับรางวัล AFK':'🌙 บอทปิดจอ');
+  btn.title=last?.active?'AFK ฟาร์มบน Supabase ขณะปิดจอได้':'แตะเพื่อเปิด AFK ออนไลน์สูงสุด 24 ชั่วโมง';
+  btn.setAttribute('aria-label',btn.textContent);
+ }
  const panel=$('amber312-panel');if(!panel)return;
  const msg=panel.querySelector('.amber312-status');if(msg)msg.textContent=statusText();
  for(const btn of panel.querySelectorAll('[data-afk-action]'))btn.disabled=busy||!ready()||(btn.dataset.afkAction==='start'&&!!last?.active);
@@ -105,6 +116,29 @@ function panel(){
  redraw();
  void actionStatus();
 }
+function openAfk(){
+ if(typeof openModal==='function'){
+  openModal('🌙 บอทปิดจอ · AFK ออนไลน์','<p style="color:#c8eadb">กำลังตรวจสถานะ Supabase…</p>');
+  panel();
+ }else toast('ยังเปิดเมนู AFK ไม่ได้ กรุณาโหลดเกมให้ครบก่อน');
+}
+function installQuickButtons(){
+ styles();
+ const actions=$('autobtn');
+ const bar=actions?.closest('.scenefoot');
+ if(bar&&!$('amber312-quick')){
+  const btn=document.createElement('button');btn.type='button';btn.id='amber312-quick';
+  btn.textContent='🌙 บอทปิดจอ';btn.onclick=openAfk;
+  actions.insertAdjacentElement('afterend',btn);
+ }
+ const sc=$('scene');
+ if(sc&&!$('amber312-scene')){
+  const btn=document.createElement('button');btn.type='button';btn.id='amber312-scene';
+  btn.textContent='🌙 บอทปิดจอ';btn.onclick=openAfk;
+  sc.appendChild(btn);
+ }
+ redraw();
+}
 const oldSettings=window.openSettings;
 if(typeof oldSettings==='function'){
  window.openSettings=function amber312Settings(){
@@ -112,8 +146,11 @@ if(typeof oldSettings==='function'){
   setTimeout(panel,0);return result;
  };
 }
-window.AMBER_V312={open:panel,powerSave:lightMode,refresh:actionStatus,status:()=>last};
-window.addEventListener('pageshow',()=>{if(ready())void actionStatus();});
+window.AMBER_V312={open:openAfk,powerSave:lightMode,refresh:actionStatus,status:()=>last};
+window.addEventListener('pageshow',()=>{installQuickButtons();if(ready())void actionStatus();});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&ready())void actionStatus();});
-console.info('[V31.2] Supabase AFK mode and local low-power overlay loaded');
+setInterval(()=>{installQuickButtons();if(ready()&&!document.hidden&&Date.now()-lastSync>30000)void actionStatus();},7000);
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{installQuickButtons();if(ready())void actionStatus();},{once:true});
+else {installQuickButtons();if(ready())void actionStatus();}
+console.info('[V31.4] Screen-off AFK button visible in realtime scene and AUTO controls');
 })();
