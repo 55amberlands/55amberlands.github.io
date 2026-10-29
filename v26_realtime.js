@@ -552,6 +552,28 @@ function start() {
   if (!ST()) return setTimeout(start, 300);
   safe(() => { const o = window.AMBER_V12 && window.AMBER_V12.presenceInfo; });
   mount(); setInterval(mount, 3000);
+  // CBT: retain the ORIGINAL AFK button and its click handler when realtime UI rerenders.
+  (function retainAfkButton(){
+    let saved=null,home=null,restoring=false;
+    const find=()=>Array.from(document.querySelectorAll('button')).find(b=>
+      !b.closest('[role="dialog"],.modal,#amber313AfkPanel') &&
+      /บอทปิดจอ/.test((b.textContent||'').trim()) &&
+      !/เริ่ม|หยุด|รับรางวัล|ตรวจสถานะ/.test(b.textContent||''));
+    const check=()=>{
+      if(!saved||!saved.isConnected){
+        const found=find();
+        if(found){saved=found;home=found.parentElement;}
+      }
+      if(saved&&!saved.isConnected&&home?.isConnected&&!restoring){
+        restoring=true;
+        home.appendChild(saved); // move the same element; listeners are preserved
+        restoring=false;
+      }
+    };
+    setInterval(check,1100);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(check,80)});
+    setTimeout(check,900);
+  })();
   // keep own party id readable for this module
   setInterval(() => safe(() => { window.AMBER_MY_PID = (typeof myPid !== 'undefined') ? myPid : (window.AMBER_MY_PID || null); }), 1000);
 }
