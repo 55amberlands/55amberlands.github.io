@@ -38,6 +38,8 @@ function openPanel(){
 }
 function mount(){
  const scene=$('scene');if(!scene||!afk())return;
+ // V31.2 may already supply the on-scene AFK button. Never stack two buttons.
+ if($('amber312-scene')){$('amber314-afk-game')?.remove();return;}
  styles();
  let btn=$('amber314-afk-game');
  if(btn?.parentNode===scene)return;
@@ -72,6 +74,7 @@ function paint(){
  btn.title=active?'บอททำงานบน Supabase แม้ปิดหน้าจอ Android':'แตะเพื่อเริ่มหรือรับรางวัล AFK';
 }
 async function refresh(force=false){
+ if($('amber312-scene'))return; // the built-in AFK module already refreshes status
  if(!ready()||!afk()?.refresh||requesting)return;
  if(!force&&Date.now()-refreshedAt<25000)return;
  refreshedAt=Date.now();requesting=true;
@@ -79,8 +82,9 @@ async function refresh(force=false){
  finally{requesting=false;paint();}
 }
 function tick(){
- mount();paint();
- if(!document.hidden)void refresh();
+ mount();
+ if($('amber312-scene'))return;
+ paint();if(!document.hidden)void refresh();
 }
 window.addEventListener('pageshow',()=>{mount();void refresh(true)});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){mount();void refresh(true)}});
