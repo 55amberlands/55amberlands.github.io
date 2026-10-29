@@ -145,13 +145,26 @@ function openAfk(){
 function installQuickButtons(){
  styles();
  const sc=$('scene');
- if(sc&&!$('amber312-scene')){
-  const btn=document.createElement('button');btn.type='button';btn.id='amber312-scene';
+ if(!sc)return;
+ let btn=$('amber312-scene');
+ // The realtime scene is rebuilt during menu transitions. Never leave the
+ // AFK control attached to an old scene node (or wait 7 seconds to restore it).
+ if(btn&&btn.parentNode!==sc){btn.remove();btn=null;}
+ if(!btn){
+  btn=document.createElement('button');btn.type='button';btn.id='amber312-scene';
   btn.textContent='🌙 บอทปิดจอ';btn.onclick=openAfk;
   sc.appendChild(btn);
  }
  redraw();
 }
+// Restore the button immediately if the game's scene renderer replaces it.
+// Only inspect child insertions/removals; status and cosmetic changes do not
+// trigger recreation or affect server AFK activity.
+const quickButtonObserver=new MutationObserver(()=>{
+ const scene=$('scene'),btn=$('amber312-scene');
+ if(scene&&(!btn||btn.parentNode!==scene))installQuickButtons();
+});
+quickButtonObserver.observe(document.body,{childList:true,subtree:true});
 
 window.AMBER_V312={open:openAfk,powerSave:lightMode,refresh:actionStatus,status:()=>last};
 window.addEventListener('pageshow',()=>{installQuickButtons();if(ready())void actionStatus();});
