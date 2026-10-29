@@ -16,12 +16,22 @@ const css=`
 #amber312-quick.amber312-on,#amber312-scene.amber312-on{border-color:#d4ff8a!important;background:linear-gradient(130deg,#1b6348,#164c36)!important}
 #amber312-scene{position:absolute!important;right:7px!important;bottom:7px!important;z-index:65!important;min-height:36px!important;padding:5px 9px!important;border:2px solid #8feec5!important;border-radius:10px!important;background:#103b3de8!important;color:#fafff1!important;font:900 11px/1.2 system-ui!important;box-shadow:0 2px 9px #0018!important;pointer-events:auto!important;max-width:150px!important}
 #amber312-scene:active,#amber312-quick:active{transform:scale(.97)}
-#amber312-panel{background:#0c1932;color:#f0f4ff;border:1px solid #86b5f6;border-radius:12px;padding:12px;margin:14px 0;font:13px/1.5 system-ui}
+#amber312-panel{box-sizing:border-box;max-width:100%;background:#0c1932;color:#f0f4ff;border:1px solid #86b5f6;border-radius:12px;padding:12px;margin:6px 0;font:13px/1.5 system-ui;overflow-wrap:anywhere}
 #amber312-panel h3{color:#ffe497;font:900 18px system-ui;margin:0 0 7px}
 #amber312-panel p{margin:7px 0}
 #amber312-panel button{padding:9px 11px;border-radius:8px;border:1px solid #7eb5e6;background:#173a63;color:white;font:700 13px system-ui;margin:4px 5px 4px 0;min-height:40px}
 #amber312-panel button:disabled{opacity:.55;cursor:wait}
-#amber312-panel .amber312-status{padding:8px;background:#071327;border-radius:8px;margin-top:9px;color:#b5edcf}
+#amber312-panel .amber312-status{white-space:pre-line;padding:10px;background:#071327;border-radius:8px;margin:9px 0;color:#b5edcf;font-size:13px;line-height:1.6}
+#amber312-panel .amber312-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+#amber312-panel .amber312-actions button{box-sizing:border-box;min-width:0;width:100%;margin:0;white-space:normal;line-height:1.35;min-height:45px}
+#amber312-panel .amber312-actions button[data-afk-action=start]{background:#16704f;border-color:#7bffc1}
+#amber312-panel .amber312-actions button[data-afk-action=stop]{background:#79431c;border-color:#ffcf86}
+#amber312-panel details{margin:10px 0 2px;color:#aecbe3}
+#amber312-panel summary{cursor:pointer;font-size:12px;font-weight:700}
+body:has(#amber312-panel) #amber312-scene,
+body:has(#amber312-panel) #amber314-afk-game{display:none!important}
+body:has(#amber312-panel) .px25-wb,
+body:has(#amber312-panel) #amber3014-v28-announcement{visibility:hidden!important}
 #amber312-dim{position:fixed;inset:0;z-index:1001000;background:#010204;color:#f3e6b2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center;font:700 14px/1.5 system-ui;padding:20px;box-sizing:border-box}
 #amber312-dim h2{font:900 26px system-ui;margin:0}
 #amber312-dim button{background:#233d59;color:white;border:1px solid #a1bad9;border-radius:13px;padding:14px 20px;font:800 16px system-ui;min-width:170px}
@@ -40,14 +50,19 @@ function lightMode(on){
 }
 function statusText(){
  if(!ready())return '🔒 กรุณาเข้าสู่ระบบ Google และเชื่อมต่อ Supabase';
- if(!last)return 'กดตรวจสถานะ เพื่อดูข้อมูลจากเซิร์ฟเวอร์';
- if(!last.active&&!Number(last.pending_kills))return '⏹ ไม่ได้เปิดฟาร์มปิดจอ';
- const progress='กำจัด '+fmt(last.pending_kills)+' ตัว · EXP '+fmt(last.pending_exp)+' · Gold '+fmt(last.pending_gold)+' · วัตถุดิบ '+fmt(Number(last.pending_gw)+Number(last.pending_ga));
+ if(!last)return 'กำลังตรวจสถานะจากเซิร์ฟเวอร์…';
+ const active=!!last.active;
+ const count=Number(last.pending_kills)||0;
+ const pending=count>0||Number(last.pending_gear)>0||Number(last.pending_exp)>0||Number(last.pending_gold)>0;
+ if(!active&&!pending)return '⚪ ยังไม่ได้เปิดบอทปิดจอ\\nเลือกมอนสเตอร์ทั่วไปในแผนที่ก่อนเริ่ม';
+ const lines=[active?'🟢 กำลังฟาร์มบนเซิร์ฟเวอร์':'🎁 มีรางวัล AFK รอรับ'];
+ lines.push('🎯 '+String(last.monster_name||last.monster_id||'ไม่ทราบชื่อ'));
  const end=Date.parse(String(last.expires_at||''));
- const time=Number.isFinite(end)?' · สิ้นสุด '+new Date(end).toLocaleString('th-TH',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}):'';
- const bag=last.pending_loot&&typeof last.pending_loot==='object'?Object.values(last.pending_loot).reduce((a,b)=>a+(Number(b)||0),0):0;
- const extra=' · ไอเทม '+fmt(bag)+' · อุปกรณ์ '+fmt(last.pending_gear)+' · ใช้ HP/MP '+fmt(last.pending_hp_pots)+'/'+fmt(last.pending_mp_pots);
- return (last.active?'🟢 เซิร์ฟเวอร์กำลังฟาร์ม':'🎁 มีรางวัลที่ยังไม่ได้รับ')+' · '+String(last.monster_name||last.monster_id||'')+time+' · '+progress+extra;
+ if(Number.isFinite(end))lines.push('⏰ สิ้นสุด '+new Date(end).toLocaleString('th-TH',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}));
+ lines.push('⚔️ กำจัด '+fmt(count)+' ตัว · EXP '+fmt(last.pending_exp));
+ lines.push('🪙 Gold '+fmt(last.pending_gold)+' · อุปกรณ์ '+fmt(last.pending_gear)+' ชิ้น');
+ lines.push('🧪 ยา HP/MP '+fmt(last.pending_hp_pots)+'/'+fmt(last.pending_mp_pots));
+ return lines.join('\\n');
 }
 function redraw(){
  for(const id of ['amber312-quick','amber312-scene']){
@@ -100,37 +115,35 @@ async function actionStatus(){
 function panel(){
  const host=$('modalBody');
  if(!host)return;
- if($('amber312-panel')){$('amber312-panel').remove();}
+ $('amber312-panel')?.remove();
  styles();
  const box=document.createElement('section');box.id='amber312-panel';
- const title=document.createElement('h3');title.textContent='🌙 ประหยัดพลังงาน / ฟาร์มปิดจอ';
- const para=document.createElement('p');para.textContent='AFK ออนไลน์สูงสุด 24 ชั่วโมงต่อครั้ง · เปิด AUTO สกิล / AUTO ยา HP-MP / เก็บของทุกชนิดจากมอนทั่วไป (รวมอุปกรณ์เมื่อกระเป๋าว่าง) · เซิร์ฟเวอร์ Supabase ทำงานทุก 1 นาที · หยุดเพื่อรับรางวัลและหักยาจริง';
- box.append(title,para);
- for(const [key,label] of [['start','▶️ เริ่มฟาร์มปิดจอ'],['stop','⏹ หยุดและรับรางวัล'],['refresh','🔄 ตรวจสถานะ'],['dim','🌑 ประหยัดจอ']]){
-  const btn=document.createElement('button');btn.type='button';btn.dataset.afkAction=key;btn.textContent=label;btn.onclick=()=>{if(key==='dim')lightMode(true);else void action(key);};box.appendChild(btn);
+ const title=document.createElement('h3');title.textContent='🌙 AFK ออนไลน์ · 24 ชั่วโมง';
+ const para=document.createElement('p');para.textContent='ตีมอนทั่วไป ใช้สกิล/ยา และเก็บของบน Supabase แม้ปิดหน้าจอ Android';
+ const st=document.createElement('div');st.className='amber312-status';st.setAttribute('role','status');
+ const actions=document.createElement('div');actions.className='amber312-actions';
+ for(const [key,label] of [['start','▶ เริ่มบอท'],['stop','■ หยุดและรับของ'],['refresh','↻ ตรวจสถานะ'],['dim','🌑 ประหยัดจอ']]){
+  const btn=document.createElement('button');btn.type='button';btn.dataset.afkAction=key;
+  btn.textContent=label;btn.onclick=()=>{if(key==='dim')lightMode(true);else void action(key)};
+  actions.appendChild(btn);
  }
- const st=document.createElement('p');st.className='amber312-status';box.appendChild(st);
- const note=document.createElement('p');note.textContent='หลังเริ่ม AFK กดปุ่ม Power ปิดจอ Android หรือปิด Chrome ได้ เซิร์ฟเวอร์คำนวณการฟาร์มต่อสูงสุด 24 ชั่วโมง โดยไม่ต้องเปิดแอปไว้ · หาก HP ไม่พอและหมดยา ระบบหยุดเอง · ไอเทมอุปกรณ์รับได้ตามช่องกระเป๋าที่เหลือ · ระหว่าง AFK เล่นและโจมตีมอนปกติพร้อมกันไม่ได้';
- box.appendChild(note);
+ const details=document.createElement('details');
+ const summary=document.createElement('summary');summary.textContent='รายละเอียดการทำงานและข้อจำกัด';
+ const note=document.createElement('p');note.textContent='หลังเริ่มบอท กด Power ปิดจอหรือปิด Chrome ได้ เซิร์ฟเวอร์จะทำงานตามรอบของ Supabase สูงสุด 24 ชั่วโมง ต้องหยุดเพื่อรับ EXP/Gold/ไอเทมจริง และระบบจะหยุดเมื่อ HP หรือยาไม่พอ ไม่รองรับบอสโลก บอสแร่ ดันเจี้ยน หรือ PvP ห้ามโจมตีพร้อม AFK';
+ details.append(summary,note);
+ box.append(title,para,st,actions,details);
  host.appendChild(box);
  redraw();
  void actionStatus();
 }
 function openAfk(){
  if(typeof openModal==='function'){
-  openModal('🌙 บอทปิดจอ · AFK ออนไลน์','<p style="color:#c8eadb">กำลังตรวจสถานะ Supabase…</p>');
+  openModal('🌙 บอทปิดจอ','<p style="color:#c8eadb">กำลังตรวจสถานะ Supabase…</p>');
   panel();
  }else toast('ยังเปิดเมนู AFK ไม่ได้ กรุณาโหลดเกมให้ครบก่อน');
 }
 function installQuickButtons(){
  styles();
- const actions=$('autobtn');
- const bar=actions?.closest('.scenefoot');
- if(bar&&!$('amber312-quick')){
-  const btn=document.createElement('button');btn.type='button';btn.id='amber312-quick';
-  btn.textContent='🌙 บอทปิดจอ';btn.onclick=openAfk;
-  actions.insertAdjacentElement('afterend',btn);
- }
  const sc=$('scene');
  if(sc&&!$('amber312-scene')){
   const btn=document.createElement('button');btn.type='button';btn.id='amber312-scene';
@@ -139,13 +152,7 @@ function installQuickButtons(){
  }
  redraw();
 }
-const oldSettings=window.openSettings;
-if(typeof oldSettings==='function'){
- window.openSettings=function amber312Settings(){
-  const result=oldSettings.apply(this,arguments);
-  setTimeout(panel,0);return result;
- };
-}
+
 window.AMBER_V312={open:openAfk,powerSave:lightMode,refresh:actionStatus,status:()=>last};
 window.addEventListener('pageshow',()=>{installQuickButtons();if(ready())void actionStatus();});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&ready())void actionStatus();});
