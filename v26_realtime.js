@@ -146,7 +146,7 @@ function detHTML() {
   if (!mapSel) return '<small>แตะจุดสีเพื่อดูสมาชิกปาร์ตี้ และขอเข้าร่วม</small>';
   const d = worldData(), r = d.res[mapSel.map], mem = r && r.parties[mapSel.k]; if (!mem) return '<small>ปาร์ตี้นี้ไม่อยู่แล้ว</small>';
   const st = ST(), mine = window.AMBER_MY_PID || '', zone = mem[0].zone, lo = r.m[2];
-  const canGo = st.map !== mapSel.map && st.lv >= lo;
+  const canGo = st.map !== mapSel.map && (st.lv >= lo || Number(st.v25?.rebirth||0)>0);
   return `<b style="color:${pcol(mapSel.k)}">● ปาร์ตี้ ${mem.length}/7</b> · ${esc(r.m[1])} · ${esc(zone)}<div class="px26-mem">${mem.map(p => `<span>${esc(p.n)} <small>Lv.${p.lv} ${esc(p.job)}</small></span>`).join('')}</div><div class="row">${mem.some(p => p.me) ? '<small>นี่คือปาร์ตี้ของคุณ</small>' : (mine ? '<small>ออกจากปาร์ตี้ปัจจุบันก่อนจึงจะขอเข้าอื่นได้</small>' : mem.length >= 7 ? '<small>ปาร์ตี้เต็ม</small>' : `<button class="goldbtn" data-px26="join" data-pid="${esc(mapSel.k)}">🙋 ขอเข้าปาร์ตี้</button>`)}${canGo ? `<button data-px26="go" data-map="${esc(mapSel.map)}">🚶 ไปแมปนี้</button>` : (st.map !== mapSel.map ? `<small>ต้อง Lv.${lo}+</small>` : '')}</div>`;
 }
 function openWorld() {
