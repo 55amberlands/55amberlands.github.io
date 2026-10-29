@@ -39,7 +39,11 @@ function statusText(){
  if(!last)return 'กดตรวจสถานะ เพื่อดูข้อมูลจากเซิร์ฟเวอร์';
  if(!last.active&&!Number(last.pending_kills))return '⏹ ไม่ได้เปิดฟาร์มปิดจอ';
  const progress='กำจัด '+fmt(last.pending_kills)+' ตัว · EXP '+fmt(last.pending_exp)+' · Gold '+fmt(last.pending_gold)+' · วัตถุดิบ '+fmt(Number(last.pending_gw)+Number(last.pending_ga));
- return (last.active?'🟢 เซิร์ฟเวอร์กำลังฟาร์ม':'🎁 มีรางวัลที่ยังไม่ได้รับ')+' · '+String(last.monster_name||last.monster_id||'')+' · '+progress;
+ const end=Date.parse(String(last.expires_at||''));
+ const time=Number.isFinite(end)?' · สิ้นสุด '+new Date(end).toLocaleString('th-TH',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}):'';
+ const bag=last.pending_loot&&typeof last.pending_loot==='object'?Object.values(last.pending_loot).reduce((a,b)=>a+(Number(b)||0),0):0;
+ const extra=' · ไอเทม '+fmt(bag)+' · อุปกรณ์ '+fmt(last.pending_gear)+' · ใช้ HP/MP '+fmt(last.pending_hp_pots)+'/'+fmt(last.pending_mp_pots);
+ return (last.active?'🟢 เซิร์ฟเวอร์กำลังฟาร์ม':'🎁 มีรางวัลที่ยังไม่ได้รับ')+' · '+String(last.monster_name||last.monster_id||'')+time+' · '+progress+extra;
 }
 function redraw(){
  const panel=$('amber312-panel');if(!panel)return;
@@ -71,9 +75,9 @@ async function action(kind){
     try{renderTop()}catch(e){}
     try{renderBag()}catch(e){}
    }
-   toast('🎁 รับผลฟาร์ม '+fmt(data.kills)+' ตัว · EXP +'+fmt(data.exp)+' · Gold +'+fmt(data.gold));
+   toast('🎁 รับ AFK '+fmt(data.kills)+' ตัว · EXP +'+fmt(data.exp)+' · Gold +'+fmt(data.gold)+' · อุปกรณ์ '+fmt(data.gear_received)+' · ของ '+fmt(data.loot_received)+' · ใช้ HP/MP '+fmt(data.hp_pots_used)+'/'+fmt(data.mp_pots_used));
    await actionStatus();
-  }else if(kind==='start')toast('🟢 เปิดฟาร์มบนเซิร์ฟเวอร์แล้ว · สามารถดับจอมือถือได้');
+  }else if(kind==='start')toast('🟢 AFK บน Supabase เปิด 24 ชั่วโมง · AUTO สกิล/ยา/ของ เปิด · ปิดจอได้');
  }catch(e){toast('⚠️ โหมดประหยัดพลังงาน: '+String(e.message||e).slice(0,120));}
  finally{busy=false;redraw();}
 }
@@ -89,13 +93,13 @@ function panel(){
  styles();
  const box=document.createElement('section');box.id='amber312-panel';
  const title=document.createElement('h3');title.textContent='🌙 ประหยัดพลังงาน / ฟาร์มปิดจอ';
- const para=document.createElement('p');para.textContent='โหมดฟาร์มปิดจอใช้ Supabase ทำงานทุก 1 นาที สะสม EXP, Gold และวัตถุดิบจากมอนทั่วไปในแมพปัจจุบัน กดหยุดเพื่อรับรางวัลเข้าตัวละคร (ไม่มีการสุ่มอาวุธหรือบอสในโหมดนี้)';
+ const para=document.createElement('p');para.textContent='AFK ออนไลน์สูงสุด 24 ชั่วโมงต่อครั้ง · เปิด AUTO สกิล / AUTO ยา HP-MP / เก็บของทุกชนิดจากมอนทั่วไป (รวมอุปกรณ์เมื่อกระเป๋าว่าง) · เซิร์ฟเวอร์ Supabase ทำงานทุก 1 นาที · หยุดเพื่อรับรางวัลและหักยาจริง';
  box.append(title,para);
  for(const [key,label] of [['start','▶️ เริ่มฟาร์มปิดจอ'],['stop','⏹ หยุดและรับรางวัล'],['refresh','🔄 ตรวจสถานะ'],['dim','🌑 ประหยัดจอ']]){
   const btn=document.createElement('button');btn.type='button';btn.dataset.afkAction=key;btn.textContent=label;btn.onclick=()=>{if(key==='dim')lightMode(true);else void action(key);};box.appendChild(btn);
  }
  const st=document.createElement('p');st.className='amber312-status';box.appendChild(st);
- const note=document.createElement('p');note.textContent='หลังเริ่มฟาร์ม สามารถกดปุ่ม Power ปิดจอ Android ได้ ตัวละครจะฟาร์มต่อที่เซิร์ฟเวอร์จนกว่าจะกดหยุด ไม่ต้องเปิดแอปค้างไว้ แต่ฟาร์มปกติและฟาร์มปิดจอจะไม่ทำงานซ้อนกัน';
+ const note=document.createElement('p');note.textContent='หลังเริ่ม AFK กดปุ่ม Power ปิดจอ Android หรือปิด Chrome ได้ เซิร์ฟเวอร์คำนวณการฟาร์มต่อสูงสุด 24 ชั่วโมง โดยไม่ต้องเปิดแอปไว้ · หาก HP ไม่พอและหมดยา ระบบหยุดเอง · ไอเทมอุปกรณ์รับได้ตามช่องกระเป๋าที่เหลือ · ระหว่าง AFK เล่นและโจมตีมอนปกติพร้อมกันไม่ได้';
  box.appendChild(note);
  host.appendChild(box);
  redraw();
