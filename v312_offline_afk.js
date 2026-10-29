@@ -54,7 +54,7 @@ function statusText(){
  const active=!!last.active;
  const count=Number(last.pending_kills)||0;
  const pending=count>0||Number(last.pending_gear)>0||Number(last.pending_exp)>0||Number(last.pending_gold)>0;
- if(!active&&!pending)return '⚪ ยังไม่ได้เปิดบอทปิดจอ\\nเลือกมอนสเตอร์ทั่วไปในแผนที่ก่อนเริ่ม';
+ if(!active&&!pending)return '⚪ ยังไม่ได้เปิดบอทปิดจอ\nเลือกมอนสเตอร์ทั่วไปในแผนที่ก่อนเริ่ม';
  const lines=[active?'🟢 กำลังฟาร์มบนเซิร์ฟเวอร์':'🎁 มีรางวัล AFK รอรับ'];
  lines.push('🎯 '+String(last.monster_name||last.monster_id||'ไม่ทราบชื่อ'));
  const end=Date.parse(String(last.expires_at||''));
@@ -62,7 +62,7 @@ function statusText(){
  lines.push('⚔️ กำจัด '+fmt(count)+' ตัว · EXP '+fmt(last.pending_exp));
  lines.push('🪙 Gold '+fmt(last.pending_gold)+' · อุปกรณ์ '+fmt(last.pending_gear)+' ชิ้น');
  lines.push('🧪 ยา HP/MP '+fmt(last.pending_hp_pots)+'/'+fmt(last.pending_mp_pots));
- return lines.join('\\n');
+ return lines.join('\n');
 }
 function redraw(){
  for(const id of ['amber312-quick','amber312-scene']){
