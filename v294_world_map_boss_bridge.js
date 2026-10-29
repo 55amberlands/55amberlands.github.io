@@ -13,7 +13,7 @@
  const server=()=>window.AMBER_CLOUD?.getClient?.();
  function canEngage(m){
    if(!m||m.map!==state.map)return false;
-   if(Number(m.lv)>Number(state.lv)+5){message('🔒 บอสนี้ต้องมีเลเวลอย่างน้อย '+(Number(m.lv)-5));return false;}
+   if(Number(m.lv)>Number(state.lv)+5&&!(Number(state.v25?.rebirth||0)>0)){message('🔒 บอสนี้ต้องมีเลเวลอย่างน้อย '+(Number(m.lv)-5));return false;}
    if(!window.AMBER_V277?.ready?.()){message('🔒 ต้องเชื่อม Supabase ก่อนสู้บอส');return false;}
    return true;
  }
