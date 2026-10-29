@@ -563,7 +563,7 @@ function start() {
     const api=()=>cloud()?.getClient?.();
     const online=()=>!!(cloud()?.getStatus?.()?.cloudReady && api());
     const fmt=t=>t?new Date(t).toLocaleString('th-TH'):'–';
-    const render=(data)=>{
+    const renderAfk=(data)=>{
       if(!panel)return;
       const el=panel.querySelector('#amber313AfkStatus');if(!el)return;
       el.textContent=data.active?'🟢 บอทออนไลน์บน Supabase\n':'⚪ บอทหยุดแล้ว\n';
@@ -583,7 +583,7 @@ function start() {
       if(!data?.ok)throw Error(data?.reason||'เซิร์ฟเวอร์ไม่ยืนยัน');
       return data;
     };
-    const refresh=async()=>{try{render(await rpc('status'))}catch(e){if(panel)panel.querySelector('#amber313AfkStatus').textContent='⚠️ '+(e.message||e)}};
+    const refresh=async()=>{try{renderAfk(await rpc('status'))}catch(e){if(panel)panel.querySelector('#amber313AfkStatus').textContent='⚠️ '+(e.message||e)}};
     const button=document.createElement('button');button.id='amber313AfkBtn';button.type='button';button.textContent='🌙 บอทปิดจอ';
     const mountButton=()=>{
       const nav=document.querySelector('.nav');
@@ -601,14 +601,14 @@ function start() {
         try{
           const mon=typeof state!=='undefined'?state.mob:null;
           if(!mon)throw Error('เลือกมอนสเตอร์ก่อน');
-          render(await rpc('start',mon));
+          renderAfk(await rpc('start',mon));
         }catch(e){panel?.querySelector('#amber313AfkStatus')&&(panel.querySelector('#amber313AfkStatus').textContent='⚠️ '+(e.message||e))}
         finally{busy=false}
       };
       panel.querySelector('#amber313AfkStop').onclick=async()=>{
         if(busy)return;busy=true;
         try{
-          const d=await rpc('stop');render(d);
+          const d=await rpc('stop');renderAfk(d);
           if(d.save&&typeof state!=='undefined'){
             const auto=!!state.auto;state={...state,...d.save,auto};save();render?.();
           }
