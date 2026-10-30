@@ -170,7 +170,7 @@ window.buy=async function v277BuyPotion(type){
 // modal and its scroll position stay open on mobile. Never locally mint stat points.
 // V31.4 bulk stat controls. Display is read-only until Supabase approves the spend.
 const amber314StatKinds=['STR','DEX','INT','VIT','AGI','LUK'];
-const amber314Amounts=[1,5,10,100];
+const amber314Amounts=[1,10,100];
 let amber314StatPending=false;
 window.statRows=function amber314StatRows(){
  const el=document.getElementById('statrows');
