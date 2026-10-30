@@ -168,25 +168,54 @@ window.buy=async function v277BuyPotion(type){
 // V29.5: stat allocation is confirmed by Supabase BEFORE updating displayed values.
 // The V12 extended combat panel is outside render(); refresh it in-place so the
 // modal and its scroll position stay open on mobile. Never locally mint stat points.
-window.upStat=async function v295LiveStat(st){
- if(!['STR','DEX','INT','VIT','AGI','LUK'].includes(st))return;
+// V31.4 bulk stat controls. Display is read-only until Supabase approves the spend.
+const amber314StatKinds=['STR','DEX','INT','VIT','AGI','LUK'];
+const amber314Amounts=[1,5,10,100];
+let amber314StatPending=false;
+window.statRows=function amber314StatRows(){
+ const el=document.getElementById('statrows');
+ if(!el||typeof state==='undefined')return;
+ const available=Math.max(0,Number(state.points)||0);
+ el.innerHTML=amber314StatKinds.filter(k=>Object.prototype.hasOwnProperty.call(state.stats||{},k)).map(k=>{
+   const value=Number(state.stats[k])||0;
+   return '<div class="statrow amber314-stat" style="display:flex;flex-wrap:wrap;gap:5px;padding:8px 4px;align-items:center">'
+     +'<b style="min-width:42px">'+k+'</b><span style="min-width:55px;text-align:right;font-variant-numeric:tabular-nums">'+value.toLocaleString('th-TH')+'</span>'
+     +'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-left:auto">'
+     +amber314Amounts.map(n=>'<button type="button" style="padding:6px 8px;min-width:41px;font-size:12px" onclick="upStat(\''+k+'\','+n+')" '
+       +(amber314StatPending||available<n||value+n>10000?'disabled':'')+'>+'+n+'</button>').join('')
+     +'</div></div>';
+ }).join('');
+ const pts=document.getElementById('pts');
+ if(pts)pts.textContent=available.toLocaleString('th-TH');
+};
+window.upStat=async function amber314LiveStat(st,amount=1){
+ const n=Number(amount);
+ if(!amber314StatKinds.includes(st)||!amber314Amounts.includes(n)||amber314StatPending)return;
+ if(!window.AMBER_V277?.ready?.()){tell('🔒 ต้องเชื่อม Supabase ก่อนอัปสเตตัส');return;}
+ if(Number(state.points||0)<n){tell('แต้มสเตตัสไม่พอสำหรับ +'+n);return;}
+ if((Number(state.stats?.[st])||0)+n>10000){tell('สเตตัสเต็ม 10,000 แล้ว');return;}
+ amber314StatPending=true;
+ const root=document.getElementById('statrows'),scrollY=root?.parentElement?.scrollTop||0;
+ window.statRows();
  try{
-   const receipt=await economy('allocate_stat',{stat:st});
-   if(!receipt?.ok || !receipt?.save)throw Error('STAT_NOT_CONFIRMED');
-   statRows();
+   const receipt=await economy('allocate_stat',{stat:st,amount:n});
+   if(!receipt?.ok||!receipt?.save)throw Error('STAT_NOT_CONFIRMED');
    window.AMBER_V12?.updateExtended?.();
    window.AMBER_V12?.statStrip?.();
-   // The modal's original summary line is not part of render()/statRows().
-   // Replace just its numeric text; preserve the points button and its scroll.
    const summary=document.getElementById('statrows')?.previousElementSibling;
-   if(summary?.tagName==='P' && summary.textContent.includes('พลังต่อสู้')){
+   if(summary?.tagName==='P'&&summary.textContent.includes('พลังต่อสู้')){
      const power=Math.round((Number(state.stats?.STR)||0)*8+(Number(state.stats?.DEX)||0)*3+(Number(state.lv)||1)*20);
      for(const node of summary.childNodes){
-       if(node.nodeType===3 && node.textContent.includes('พลังต่อสู้'))
-         node.textContent=node.textContent.replace(/(พลังต่อสู้\s*)[0-9,]+/u,(_,prefix)=>prefix+power.toLocaleString('th-TH'));
+       if(node.nodeType===3&&node.textContent.includes('พลังต่อสู้'))
+         node.textContent=node.textContent.replace(/(พลังต่อสู้\\s*)[0-9,]+/u,(_,prefix)=>prefix+power.toLocaleString('th-TH'));
      }
    }
- }catch(err){console.warn('[V29.5 live stat refresh]',err);}
+ }catch(err){console.warn('[V31.4 bulk stat]',err);}
+ finally{
+   amber314StatPending=false;
+   window.statRows();
+   if(root?.parentElement)root.parentElement.scrollTop=scrollY;
+ }
 };
 window.selectJob=async function v277Job(job){try{await economy('change_job',{job});closeModal();}catch{}}
 window.learnSkill=async function v277LearnSkill(id,path){try{await economy('learn_skill',{skill_id:id});showSkillPath(path)}catch{}}
