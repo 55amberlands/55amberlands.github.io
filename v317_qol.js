@@ -29,7 +29,9 @@ window.showSkillPath=function amber317SkillPath(path){
   +skills.map(sk=>{
    const done=learned.has(sk.id);
    const levelOK=level>=Number(sk.level)||reborn();
-   const statOK=Number(state.stats?.[key]||0)>=Number(sk.stat);
+   // Server checks allocated base stats, not the temporary visual equipment overlay.
+   const allocated=Math.max(0,(Number(state.stats?.[key])||0)-(Number(state._ad?.[key])||0));
+   const statOK=allocated>=Number(sk.stat);
    const okay=!done&&levelOK&&statOK&&available>0;
    const why=done?'เรียนแล้ว':!levelOK?'Lv. ไม่ถึง':!statOK?'สเตตัสไม่ถึง':available<1?'แต้มไม่พอ':'เรียน';
    return '<div class="skillrow"><img src="'+escaped(image(sk.icon))+'" alt="">'
@@ -41,11 +43,28 @@ window.showSkillPath=function amber317SkillPath(path){
   const counter=title.querySelector('b');if(counter)counter.textContent=number(available);
  }
 };
-const previousLearn=window.learnSkill;
-if(typeof previousLearn==='function')window.learnSkill=async function amber317Learn(id,path){
+let learning=false;
+window.learnSkill=async function amber317Learn(id,path){
+ if(learning)return;
  if(!online()){tell('🔒 ต้องเชื่อมต่อ Supabase เพื่อเรียนสกิล');return}
- await previousLearn(id,path);
- window.showSkillPath(path);
+ if(!['POWER','DEX','INT'].includes(path)||typeof id!=='string'||!id){tell('ข้อมูลสกิลไม่ถูกต้อง');return}
+ learning=true;
+ try{
+  const receipt=await window.AMBER_V277.invoke('amber_v277_economy',
+   {p_action:'learn_skill',p_args:{skill_id:id}},{silent:true});
+  if(!receipt?.ok||!receipt?.save)throw Error('SERVER_SKILL_NOT_CONFIRMED');
+  tell('✅ เรียนสกิลสำเร็จ');
+ }catch(e){
+  const reason=String(e?.message||e);
+  if(reason.includes('V277_SKILL_NOT_ALLOWED'))
+   tell('เรียนไม่ได้: สเตตัสพื้นฐานไม่ถึง หรือเรียนสกิลนี้ไปแล้ว');
+  else if(reason.includes('V277_SKILL_INVALID'))
+   tell('เรียนไม่ได้: เลเวล อาชีพ หรือแต้มสกิลไม่ตรงเงื่อนไข');
+  else tell('เรียนสกิลไม่สำเร็จ: '+reason.slice(0,95));
+ }finally{
+  learning=false;
+  window.showSkillPath(path);
+ }
 };
 
 /* 2. Purchase several potions in one atomic, verified RPC. */
@@ -110,7 +129,7 @@ const setRawGearDisplay=(root,base,opts,enh)=>{
  const factor=1+Math.max(0,Math.min(10,Number(enh)||0))*0.10;
  if(baseRow){
   const b=baseRow.querySelector('b');
-  if(b)b.textContent=Object.entries(base||{}).map(([k,v])=>(statName[k]||k)+' +'+number(Number(v)*factor)).join(' · ')||'ไม่มี';
+  if(b)b.textContent=Object.entries(base||{}).map(([k,v])=>(statName[k]||k)+' +'+number(Number(v)*((k==='ATK'||k==='DEF')?factor:1))).join(' · ')||'ไม่มี';
  }
  const optRows=rows.filter(row=>row.querySelector('span')?.textContent.trim().startsWith('✦'));
  for(let i=0;i<Math.min(optRows.length,(opts||[]).length);i++){
@@ -234,6 +253,6 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
 window.addEventListener('pageshow',()=>setTimeout(recovery,400));
 setInterval(recovery,5000);
 
-window.AMBER_V317_QOL=Object.freeze({version:'31.7',serverSkills:true,potionQuantityMax:1000,comparison:'server',bagReturn:true,autoTimerRecovery:true});
-console.info('[V31.7] Gameplay QoL patches loaded');
+window.AMBER_V317_QOL=Object.freeze({version:'31.7.3',serverSkills:true,potionQuantityMax:1000,comparison:'server',bagReturn:true,autoTimerRecovery:true});
+console.info('[V31.7.3] Skill feedback and gear display verified');
 })();
