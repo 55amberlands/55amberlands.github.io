@@ -80,14 +80,15 @@ function crowdList() {
 }
 function renderCrowd(force) {
   const st = ST(); if (!st) return; const host = ensureCrowd(); if (!host) return;
-  const list = crowdList(), sig = list.map(p => p.id + p.lv + p.job + p.n + p.w.w + p.w.we + p.ttl + p.pid).join('|');
+  const list = crowdList(), sig = list.map(p => p.id + p.lv + p.job + p.n + p.w.w + p.w.we + p.ttl + p.pid + (V25().firstRebirthOwner?.(p.id)?'♛':'')).join('|');
   if (force || sig !== cSig) {
     cSig = sig; host.innerHTML = ''; cEls = {};
     host.classList.toggle('many', list.length > 4);
     list.forEach(p => {
       const c = document.createElement('div'); c.className = 'px26-c'; c.dataset.id = p.id;
       const ak = V25().auraKind ? V25().auraKind(p.ttl) : '';
-      c.innerHTML = `<div class="px26-m"><img class="px26-mi" alt=""><i><u></u></i><b class="px26-dmg"></b></div><div class="px26-hw">${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h" src="${heroURL(p)}" alt="${esc(p.n)}"></div><small>${p.pid ? '👥' : ''}${esc(p.n)}</small>${p.ttl && V25().TITLES && V25().TITLES[p.ttl] ? `<div class="px26-t">${V25().titleHTML(p.ttl, true)}</div>` : ''}`;
+      const honorMark=V25().firstRebirthOwner?.(p.id)?`<div class="px319-crownhonor">${V25().firstRebirthBadge(true)}</div>`:'';
+      c.innerHTML = `<div class="px26-m"><img class="px26-mi" alt=""><i><u></u></i><b class="px26-dmg"></b></div><div class="px26-hw">${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h" src="${heroURL(p)}" alt="${esc(p.n)}"></div>${honorMark}<small>${p.pid ? '👥' : ''}${esc(p.n)}</small>${p.ttl && V25().TITLES && V25().TITLES[p.ttl] ? `<div class="px26-t">${V25().titleHTML(p.ttl, true)}</div>` : ''}`;
       host.appendChild(c); cEls[p.id] = c;
     });
   }
@@ -106,7 +107,7 @@ function showPeerCard(id) {
   const p = peers().find(x => x.id === id); if (!p) return; $('px26Peer')?.remove();
   const d = document.createElement('div'); d.id = 'px26Peer'; d.className = 'px26-pop';
   const mine = window.AMBER_MY_PID || '';
-  d.innerHTML = `<b>${esc(p.n)}</b> <small>Lv.${p.lv} ${esc(p.job)}</small><br>${p.ttl && V25().TITLES && V25().TITLES[p.ttl] ? V25().titleHTML(p.ttl, true) + '<br>' : ''}<small>${esc(p.zone)}${p.pid ? ' · 👥 อยู่ในปาร์ตี้' : ''}</small><div class="row">${!FAKE.on ? `<button data-px26="inv" data-id="${esc(p.id)}">📨 ชวนเข้าปาร์ตี้</button>` : ''}${p.pid && p.pid !== mine && !FAKE.on ? `<button data-px26="join" data-pid="${esc(p.pid)}">🙋 ขอเข้าปาร์ตี้นี้</button>` : ''}<button data-px26="x">ปิด</button></div>`;
+  d.innerHTML = `<b>${esc(p.n)}</b> <small>Lv.${p.lv} ${esc(p.job)}</small><br>${V25().firstRebirthOwner?.(p.id)?V25().firstRebirthBadge(true)+'<br>':''}${p.ttl && V25().TITLES && V25().TITLES[p.ttl] ? V25().titleHTML(p.ttl, true) + '<br>' : ''}<small>${esc(p.zone)}${p.pid ? ' · 👥 อยู่ในปาร์ตี้' : ''}</small><div class="row">${!FAKE.on ? `<button data-px26="inv" data-id="${esc(p.id)}">📨 ชวนเข้าปาร์ตี้</button>` : ''}${p.pid && p.pid !== mine && !FAKE.on ? `<button data-px26="join" data-pid="${esc(p.pid)}">🙋 ขอเข้าปาร์ตี้นี้</button>` : ''}<button data-px26="x">ปิด</button></div>`;
   document.body.appendChild(d);
 }
 
@@ -263,12 +264,12 @@ function paintArena(force) {
   $('px26Hp').style.width = pct + '%'; $('px26HpT').textContent = fmt(left) + ' / ' + fmt(max) + ' (' + pct.toFixed(1) + '%)';
   const w = safe(() => V25().wbWindow(), { open: false, end: 0 }), tl = ARENA.practice ? '' : (w.open ? '⏳ เหลือ ' + Math.max(0, Math.floor((w.end - Date.now()) / 60000)) + ' นาที' : '');
   $('px26Time').textContent = tl + ' · 👥 ' + all.length + ' คน · ' + adm.keys.length + '/10 ปาร์ตี้';
-  const mineIn = ARENA.serverMode || adm.keys.includes(ARENA.me.pid), sig = all.map(p => p.id + p.pid + p.lv + p.ttl + p.w.we).join('|') + adm.keys.join(',');
+  const mineIn = ARENA.serverMode || adm.keys.includes(ARENA.me.pid), sig = all.map(p => p.id + p.pid + p.lv + p.ttl + p.w.we + (V25().firstRebirthOwner?.(p.id)?'♛':'')).join('|') + adm.keys.join(',');
   if (force || sig !== lastField) {
     lastField = sig; const n = all.length, size = n <= 14 ? 58 : n <= 30 ? 46 : 38;
     const groups = adm.keys.map(k => ({ k, ps: all.filter(p => p.pid === k) }));
     $('px26Field').style.setProperty('--sz', size + 'px');
-    $('px26Field').innerHTML = '<div class="px26-party-stack">' + groups.map((g, gi) => `<div class="px26-grp" style="--c:${pcol(g.k)}"><b>${g.ps.some(p => p.me) ? '⭐ ปาร์ตี้ของคุณ' : 'ปาร์ตี้ ' + (gi + 1)} <small>${g.ps.length} คน</small></b><div class="rw">${g.ps.map(p => { const ak = V25().auraKind ? V25().auraKind(p.ttl) : ''; return `<div class="px26-ap${p.me ? ' me' : ''}" data-pid="${esc(p.id)}">${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h atk" src="${heroURL({ job: p.job, g: p.g, w: p.w })}" alt=""><small>${esc(p.n)}</small><em class="dm" data-dm="${esc(p.id)}"></em></div>`; }).join('')}</div></div>`).join('') + (adm.full ? '<p class="px26-warn">🚫 มีผู้เข้าร่วมครบ 10 ปาร์ตี้แล้ว — ปาร์ตี้ใหม่รอรอบหน้า</p>' : '') + '</div>';
+    $('px26Field').innerHTML = '<div class="px26-party-stack">' + groups.map((g, gi) => `<div class="px26-grp" style="--c:${pcol(g.k)}"><b>${g.ps.some(p => p.me) ? '⭐ ปาร์ตี้ของคุณ' : 'ปาร์ตี้ ' + (gi + 1)} <small>${g.ps.length} คน</small></b><div class="rw">${g.ps.map(p => { const ak = V25().auraKind ? V25().auraKind(p.ttl) : ''; const honorMark=V25().firstRebirthOwner?.(p.id)?`<div class="px319-arena-honor">${V25().firstRebirthBadge(true)}</div>`:''; return `<div class="px26-ap${p.me ? ' me' : ''}" data-pid="${esc(p.id)}">${honorMark}${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h atk" src="${heroURL({ job: p.job, g: p.g, w: p.w })}" alt=""><small>${esc(p.n)}</small><em class="dm" data-dm="${esc(p.id)}"></em></div>`; }).join('')}</div></div>`).join('') + (adm.full ? '<p class="px26-warn">🚫 มีผู้เข้าร่วมครบ 10 ปาร์ตี้แล้ว — ปาร์ตี้ใหม่รอรอบหน้า</p>' : '') + '</div>';
   }
   const rank = ARENA.serverMode ? (ARENA.server?.ranking || []) : all.slice().sort((a,b) => b.d-a.d).slice(0,5);
   const rankText = ARENA.serverMode ? rank.map((p,i) => `${p.rank || i+1}.${esc(p.name)} ${fmt(p.damage)}`).join(' · ')
@@ -474,7 +475,11 @@ const css = document.createElement('style'); css.textContent = `
 @keyframes px26up{0%{opacity:1;transform:translate(-50%,10px)}100%{opacity:0;transform:translate(-50%,-22px)}}
 .px26-hw{position:relative;height:50px;display:flex;justify-content:center;align-items:flex-end}.px26-h{max-height:50px;max-width:50px;width:auto!important;height:auto!important;image-rendering:pixelated;background:none!important;border-radius:0!important;position:relative;z-index:1}
 .px26-aura{position:absolute;bottom:-4px;left:50%;width:120%;max-width:none!important;transform:translateX(-50%);mix-blend-mode:screen;image-rendering:pixelated;pointer-events:none;background:none!important;border-radius:0!important}
-.px26-c small{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;text-shadow:0 1px 2px #000;background:#0008;border-radius:4px;padding:0 2px}.px26-t{position:absolute;left:50%;transform:translateX(-50%);top:30px;white-space:nowrap}.px26-t .px25-title{font-size:8px;padding:0 6px}
+.px26-c small{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;text-shadow:0 1px 2px #000;background:#0008;border-radius:4px;padding:0 2px}.px319-crownhonor{position:absolute;left:50%;transform:translateX(-50%);top:-18px;z-index:14;pointer-events:none;width:max-content;max-width:none;white-space:nowrap}
+.px319-crownhonor .px319-crown-badge{font-size:8px!important;padding:2px 4px!important}
+.px319-arena-honor{position:absolute;left:50%;top:-22px;transform:translateX(-50%);z-index:17;pointer-events:none;width:max-content;max-width:none;white-space:nowrap}
+.px319-arena-honor .px319-crown-badge{font-size:8px!important;padding:2px 4px!important}
+.px26-t{position:absolute;left:50%;transform:translateX(-50%);top:30px;white-space:nowrap}.px26-t .px25-title{font-size:8px;padding:0 6px}
 .px26-em{position:absolute;left:50%;top:34px;width:34px;transform:translateX(-50%);image-rendering:pixelated;z-index:5;background:none!important;border-radius:0!important}
 .px26-pop{position:fixed;left:50%;top:40%;transform:translateX(-50%);z-index:99995;background:#1a0e33;border:2px solid #ffd24a;border-radius:12px;padding:10px 14px;text-align:center;box-shadow:0 0 18px #000}.px26-pop .row,.px26-det .row{display:flex;gap:6px;justify-content:center;margin-top:7px;flex-wrap:wrap}
 .px26-hint{color:#d9c8f8;font-size:12.5px;margin:4px 0 8px}.px26-mapcard{background:#150a28;border:1px solid #4a2c86;border-radius:10px;margin:6px 0;padding:6px 8px}.px26-mapcard.here{border-color:#ffd24a}.px26-mapcard .hd{display:flex;gap:8px;align-items:baseline}.px26-mapcard .hd b{flex:1}.px26-mapcard small{color:#bba6e6}

@@ -406,6 +406,32 @@ function emoPanel(show) {
 }
 setInterval(() => safe(showEmotes), 700);
 
+
+/* V31.9 — FIRST EVER 10x REBIRTH: permanent server-only honor.
+ * This is independent of ordinary selectable titles and awards no stats. */
+const firstRebirthHonor={winnerId:'',winnerName:'',loaded:false,busy:false,last:0};
+const firstRebirthBadge=compact=>'<span class="px319-crown-badge'+(compact?' compact':'')+'" title="เกียรติยศหนึ่งเดียว: ผู้รีเบิร์นครบ 10 ครั้งคนแรก"><span class="px319-glyph">♛</span><b>ปฐมจุติ</b><em>FIRST 10×</em></span>';
+const firstRebirthOwner=id=>!!(firstRebirthHonor.loaded&&firstRebirthHonor.winnerId&&String(id)===firstRebirthHonor.winnerId);
+async function syncFirstRebirthHonor(force=false){
+ if(!online()||!sb())return;
+ if(firstRebirthHonor.busy||(!force&&Date.now()-firstRebirthHonor.last<60000))return;
+ firstRebirthHonor.busy=true;
+ try{
+  const {data,error}=await sb().rpc('amber_v319_first_rebirth_honor');
+  if(error)throw error;
+  if(data?.ok!==true)throw Error('V319_HONOR_STATUS_INVALID');
+  firstRebirthHonor.winnerId=data.awarded===true?String(data.winner_id||''):'';
+  firstRebirthHonor.winnerName=data.awarded===true?String(data.winner_name||'').slice(0,40):'';
+  firstRebirthHonor.loaded=true;
+  firstRebirthHonor.last=Date.now();
+  safe(()=>decorateScene());
+ }catch(err){
+  // No editable or cached local rebirth counter can ever unlock this badge.
+  console.warn('[V319 first rebirth honor]',err);
+  firstRebirthHonor.last=Date.now()-45000;
+ }finally{firstRebirthHonor.busy=false;}
+}
+
 /* ------------------------------------------------------------------ title plate + full-set aura in scene */
 /* V30.1.2: source-level live title hydration; no duplicate player IMG. */
 function alignTitleAura(sprite, aura) {
@@ -430,6 +456,19 @@ function decorateScene() {
   const people = window.AMBER_SCENE_PLAYERS || [];
   document.querySelectorAll('#sprites .sprite').forEach((spr, i) => {
     const tid = i === 0 ? activeTitleId() : (people[i - 1] || {}).ttl || '';
+    const person = i===0 ? null : (people[i-1]||{});
+    const playerId = i===0
+      ? safe(()=>window.AMBER_CLOUD?.getUser?.()?.id,'')
+      : (person.id||person.by||person.user_id||'');
+    const entitled = firstRebirthOwner(playerId);
+    let honorNode=spr.querySelector(':scope > .px319-honor');
+    if(entitled){
+      if(!honorNode){
+        honorNode=el('div','px319-honor',firstRebirthBadge(false));
+        spr.appendChild(honorNode);
+      }
+    }else if(honorNode){honorNode.remove();}
+
     const key = tid || '-';
     const valid = !!(tid && TITLES[tid]);
     // Visual boss-set aura belongs to equipped armor, not the chosen title.
@@ -476,6 +515,12 @@ function decorateScene() {
     if (!t) { t = el('div', '', ''); t.id = 'px25TopTitle'; top.insertAdjacentElement('afterend', t); }
     const h = tid ? titleHTML(tid, true) : '';
     if (t.dataset.h !== h) { t.dataset.h = h; t.innerHTML = h; }
+    let ownHonor=$('px319TopHonor');
+    const mine=firstRebirthOwner(safe(()=>window.AMBER_CLOUD?.getUser?.()?.id,''));
+    if(mine&&!ownHonor){
+      ownHonor=el('div','px319-top-honor',firstRebirthBadge(true));
+      ownHonor.id='px319TopHonor';t.insertAdjacentElement('afterend',ownHonor);
+    }else if(!mine&&ownHonor){ownHonor.remove();}
   }
 }
 setInterval(() => safe(decorateScene), 500);
@@ -639,7 +684,7 @@ async function tabTitles() {
 }
 function tabRebirth() {
   const st = S(), v = V(), can = st.lv >= 100 && v.rebirth < 10;
-  return `<div class="px25-reb"><img src="${PX.ui.rewardTile('star', 'rain', 56)}" alt=""><h3>🔥 เกิดใหม่ (Rebirth)</h3><p>ถึงเลเวล 100 แล้วเกิดใหม่ได้ — เลเวลกลับเป็น 1 แต่ได้ <b>โบนัสถาวรสะสม</b> ต่อครั้ง: ATK +500 · DEF +200 · HP +1500 · MP +400 · EXP +10% (สูงสุด 10 ครั้ง)<br>STR/DEX/INT/VIT/AGI/LUK และแต้มสเตตัสเดิมไม่หาย · ได้แต้มสเตตัสเพิ่มทันที +1,000 แต้มต่อการรีเบิร์นหนึ่งครั้ง · ของ ทอง สกิล การ์ด ฉายา ยังอยู่</p><div class="px25-code">เกิดใหม่แล้ว ${v.rebirth}/10 ครั้ง</div><small>โบนัสรีเบิร์นที่ได้รับแล้ว: แต้มสเตตัส +${v.rebirth * 1000} · ATK +${v.rebirth * 500} · DEF +${v.rebirth * 200} · HP +${v.rebirth * 1500} · EXP +${v.rebirth * 10}%</small><br><button class="goldbtn px25-big" data-v25="rebirth" ${can ? '' : 'disabled'}>${st.lv < 100 ? 'ต้องถึง Lv.100 (ตอนนี้ Lv.' + st.lv + ')' : v.rebirth >= 10 ? 'เกิดใหม่ครบแล้ว' : '🔥 เกิดใหม่เดี๋ยวนี้'}</button></div>`;
+  return `<div class="px25-reb"><img src="${PX.ui.rewardTile('star', 'rain', 56)}" alt=""><h3>🔥 เกิดใหม่ (Rebirth)</h3><p>ถึงเลเวล 100 แล้วเกิดใหม่ได้ — เลเวลกลับเป็น 1 แต่ได้ <b>โบนัสถาวรสะสม</b> ต่อครั้ง: ATK +500 · DEF +200 · HP +1500 · MP +400 · EXP +10% (สูงสุด 10 ครั้ง)<br>STR/DEX/INT/VIT/AGI/LUK และแต้มสเตตัสเดิมไม่หาย · ได้แต้มสเตตัสเพิ่มทันที +1,000 แต้มต่อการรีเบิร์นหนึ่งครั้ง · ของ ทอง สกิล การ์ด ฉายา ยังอยู่</p><div class="px25-code">เกิดใหม่แล้ว ${v.rebirth}/10 ครั้ง</div>${firstRebirthHonor.loaded&&firstRebirthHonor.winnerId?'<div class="px319-honor-rebirth">'+firstRebirthBadge(false)+'<small>ผู้ครองเกียรติยศคนแรก: '+esc(firstRebirthHonor.winnerName)+'</small></div>':''}<small>โบนัสรีเบิร์นที่ได้รับแล้ว: แต้มสเตตัส +${v.rebirth * 1000} · ATK +${v.rebirth * 500} · DEF +${v.rebirth * 200} · HP +${v.rebirth * 1500} · EXP +${v.rebirth * 10}%</small><br><button class="goldbtn px25-big" data-v25="rebirth" ${can ? '' : 'disabled'}>${st.lv < 100 ? 'ต้องถึง Lv.100 (ตอนนี้ Lv.' + st.lv + ')' : v.rebirth >= 10 ? 'เกิดใหม่ครบแล้ว' : '🔥 เกิดใหม่เดี๋ยวนี้'}</button></div>`;
 }
 function tabShare() {
   const gear = (S().gear || []).filter(g => g.enh >= 7 || isBossG(g)).slice(0, 12);
@@ -753,6 +798,7 @@ css.textContent += `
 }
 @media(max-width:380px){#sprites .sprite>.px25-plate .px3016-v28-badge.sm{font-size:10px!important;padding:3px 6px!important}}
 `;
+css.textContent += "\n/* V31.9 elite honor: CSS-only light effects, no extra hero sprite or animation sheet. */\n#sprites .sprite>.px319-honor{position:absolute!important;left:50%!important;\n bottom:calc(100% + 29px)!important;transform:translateX(-50%)!important;\n z-index:16!important;pointer-events:none!important;width:max-content!important;\n max-width:none!important;overflow:visible!important;white-space:nowrap!important}\n.px319-crown-badge{position:relative;isolation:isolate;display:inline-flex!important;\n align-items:center!important;justify-content:center!important;gap:4px!important;\n width:max-content!important;max-width:none!important;white-space:nowrap!important;\n border:1px solid #ffe5a0!important;border-radius:7px!important;\n background:linear-gradient(115deg,#24103b,#64215f 32%,#6e3d10 65%,#211037)!important;\n padding:4px 8px!important;color:#fff9db!important;font:900 11px/1.1 system-ui,sans-serif!important;\n letter-spacing:.12px!important;\n box-shadow:0 0 0 1px #230518,0 0 10px #ffe39599,0 0 15px #b65aff77!important;\n text-shadow:0 1px 1px #1a0029,0 0 5px #ffd384!important;\n animation:px319HonorGlow 3.5s ease-in-out infinite}\n.px319-crown-badge:before{content:'';position:absolute;inset:-3px;border:1px solid #df9eff80;border-radius:9px;\n box-shadow:0 0 10px #c060ff77;pointer-events:none;animation:px319HonorAura 2.7s ease-in-out infinite}\n.px319-crown-badge .px319-glyph{color:#ffe779;font-size:17px;line-height:12px;\n filter:drop-shadow(0 0 4px #ffb500);animation:px319HonorTilt 3.2s ease-in-out infinite}\n.px319-crown-badge b{color:#ffefb7!important;font:900 12px/1.1 system-ui,sans-serif!important;\n background:none!important;-webkit-text-fill-color:#ffefb7!important;animation:none!important}\n.px319-crown-badge em{font-style:normal;color:#f9cbff;font:900 8px/1.1 system-ui,sans-serif;\n letter-spacing:.55px;text-shadow:0 0 5px #e35fff}\n.px319-crown-badge.compact{padding:2px 5px!important;gap:3px!important;font-size:9px!important}\n.px319-crown-badge.compact .px319-glyph{font-size:13px}\n.px319-crown-badge.compact b{font-size:10px!important}\n.px319-crown-badge.compact em{font-size:7px}\n.px319-top-honor{margin:4px auto 2px;display:flex;justify-content:center}\n.px319-honor-rebirth{display:flex;flex-direction:column;align-items:center;gap:7px;margin:12px auto;color:#ffe5b1}\n.px319-honor-rebirth small{color:#ead1ff;font-size:12px}\n@keyframes px319HonorGlow{0%,100%{box-shadow:0 0 0 1px #230518,0 0 10px #ffe39599,0 0 15px #b65aff77}\n 50%{box-shadow:0 0 0 1px #46186a,0 0 16px #ffdb6ccc,0 0 22px #d275ffbb}}\n@keyframes px319HonorAura{50%{opacity:.4;transform:scale(1.08)}}\n@keyframes px319HonorTilt{50%{transform:rotate(-9deg) scale(1.1)}}\n@media(max-width:390px){#sprites .sprite>.px319-honor .px319-crown-badge{\n padding:3px 5px!important;gap:3px!important}\n #sprites .sprite>.px319-honor .px319-crown-badge b{font-size:10px!important}\n #sprites .sprite>.px319-honor .px319-crown-badge em{font-size:7px!important}}\n@media(prefers-reduced-motion:reduce){.px319-crown-badge,.px319-crown-badge:before,.px319-crown-badge .px319-glyph{animation:none!important}}\n";
 document.head.appendChild(css);
 function mount() {
   const nav = document.querySelector('.nav'); if (nav && !$('px25Hub')) { const b = document.createElement('button'); b.id = 'px25Hub'; b.type = 'button'; b.innerHTML = '🎯<span>กิจกรรม</span>'; b.onclick = () => openHub(); nav.appendChild(b); }
@@ -762,11 +808,14 @@ function start() {
   if (!S()) return setTimeout(start, 300);
   ensureDaily(); installHooks(); mount(); refreshTitles(); setTimeout(() => { refresh(); paintDot(); }, 900);
   safe(() => { const r = localStorage.getItem('amber_v25_ref'); if (r) { const v = V(); if (!v.ref.hint) { v.ref.hint = r; } } });
+  void syncFirstRebirthHonor(true);
   setInterval(() => { ensureDaily(); paintDot(); refreshTitles();
+    if(online())void syncFirstRebirthHonor();
     if (online() && (!serverTitles || Date.now()-serverTitlesStamp>30000)) void syncServerTitles(true).then(()=>safe(decorateScene)).catch(e=>console.warn('[V3015 title initial]',e));
     if (online() && Date.now()-verifiedCardStamp>60000 && !verifiedCardsBusy) void syncVerifiedCards().catch(e=>console.warn('[V3015 card initial]',e));
   }, 15000);
 }
-window.AMBER_V25 = { open: openHub, V, setInfo, activeTitleId, TITLES, shareCard, cardTier, titleHTML, auraKind, wbWindow, grant, commit, refresh };
+window.AMBER_V25 = { open: openHub, V, setInfo, activeTitleId, TITLES, shareCard, cardTier, titleHTML, auraKind, wbWindow, grant, commit, refresh,
+  firstRebirthOwner,firstRebirthBadge,syncFirstRebirthHonor };
 start();
 })();
