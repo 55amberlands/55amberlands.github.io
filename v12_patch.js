@@ -27,9 +27,9 @@ function weapon(){A.ensure();return A.G(state.eq?.W)||null}
 function gearType(w){return w?.cls&&CLASSES.includes(w.cls)?w.cls:(state.job==='นักผจญภัย'?'ดาบ':state.job)}
 function combatLocalMirror(){
  const st=state.stats||{},lv=bound(state.lv,1,100);
- // V31.7: V9's legacy ap() temporarily adds gear bonuses into state.stats.
- // Server combat counts equipped gear separately. Subtract that visual-only
- // overlay before running this server-mirror to prevent double CRIT/ATK/DEF.
+ // V31.8: local combat is an untrusted preview only. The canonical server
+ // snapshot overrides it and includes verified card and boss set bonuses.
+ // Never subtract legacy _ad metadata from server-owned persisted stats.
  const base=k=>Number(st[k]||0);
  const str=base('STR'),dex=base('DEX'),int=base('INT'),vit=base('VIT'),agi=base('AGI'),luk=base('LUK');
  const cls=state.job;
