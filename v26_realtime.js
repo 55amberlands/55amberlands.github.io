@@ -554,24 +554,34 @@ function start() {
   mount(); setInterval(mount, 3000);
   // CBT: retain the ORIGINAL AFK button and its click handler when realtime UI rerenders.
   (function retainAfkButton(){
+    // Preserve the original DOM element and its event listeners across mobile menu rerenders.
+    // The previous version failed if the old parent menu was replaced entirely.
     let saved=null,home=null,restoring=false;
     const find=()=>Array.from(document.querySelectorAll('button')).find(b=>
       !b.closest('[role="dialog"],.modal,#amber313AfkPanel') &&
       /บอทปิดจอ/.test((b.textContent||'').trim()) &&
       !/เริ่ม|หยุด|รับรางวัล|ตรวจสถานะ/.test(b.textContent||''));
     const check=()=>{
-      if(!saved||!saved.isConnected){
+      const nav=document.querySelector('.nav');
+      if(!saved){
         const found=find();
         if(found){saved=found;home=found.parentElement;}
       }
-      if(saved&&!saved.isConnected&&home?.isConnected&&!restoring){
-        restoring=true;
-        home.appendChild(saved); // move the same element; listeners are preserved
-        restoring=false;
+      if(!saved||restoring)return;
+      if(!saved.isConnected){
+        const dest=home?.isConnected?home:nav;
+        if(dest&&dest.isConnected){
+          restoring=true;
+          dest.appendChild(saved);
+          home=dest;
+          restoring=false;
+        }
       }
     };
-    setInterval(check,1100);
-    document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(check,80)});
+    const schedule=()=>setTimeout(check,80);
+    setInterval(check,650);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule();});
+    window.addEventListener('pageshow',schedule);
     setTimeout(check,900);
   })();
   // keep own party id readable for this module
