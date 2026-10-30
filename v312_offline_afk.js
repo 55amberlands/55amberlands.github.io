@@ -88,6 +88,16 @@ async function action(kind){
    if(!m||m.boss||m.map==='dungeon'||m.map==='worldboss')throw Error('เลือกมอนสเตอร์ทั่วไปในแมพก่อนเปิดฟาร์ม');
    monster=String(m.id||'');
    if(typeof stop==='function'&&typeof state!=='undefined'&&state.auto)stop();
+   // Persist map and target on the server before starting the screen-off worker.
+   // Without this, the visible target can differ from an older cloud snapshot.
+   const server=window.AMBER_CLOUD?.getClient?.();
+   if(server&&typeof state!=='undefined'){
+     const synced=await server.rpc('amber_v277_visual_save',{
+       p_visual:{map:String(state.map||''),mob:String(state.mob||'')}
+     });
+     if(synced.error||synced.data!==true)
+       throw new Error('ซิงก์แผนที่/มอนสเตอร์กับ Supabase ไม่สำเร็จ: '+String(synced.error?.message||'กรุณาเลือกมอนใหม่').slice(0,90));
+   }
   }
   const out=await rpc(kind==='refresh'?'status':kind,monster);
   if(out.error)throw out.error;
@@ -103,7 +113,7 @@ async function action(kind){
    }
    toast('🎁 รับ AFK '+fmt(data.kills)+' ตัว · EXP +'+fmt(data.exp)+' · Gold +'+fmt(data.gold)+' · อุปกรณ์ '+fmt(data.gear_received)+' · ของ '+fmt(data.loot_received)+' · ใช้ HP/MP '+fmt(data.hp_pots_used)+'/'+fmt(data.mp_pots_used));
    await actionStatus();
-  }else if(kind==='start')toast('🟢 AFK บน Supabase เปิด 24 ชั่วโมง · AUTO สกิล/ยา/ของ เปิด · ปิดจอได้');
+  }else if(kind==='start')toast('🟢 เซิร์ฟเวอร์รับงาน AFK แล้ว · ปิดจอ Android ได้ · กลับมากด หยุดและรับของ เพื่อรับรางวัล');
  }catch(e){toast('⚠️ โหมดประหยัดพลังงาน: '+String(e.message||e).slice(0,120));}
  finally{busy=false;redraw();}
 }
