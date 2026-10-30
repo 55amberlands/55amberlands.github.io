@@ -61,7 +61,6 @@ window.buy=async function amber317BuyPotions(type,qty=1){
  try{
    const reply=await window.AMBER_V277.invoke('amber_v277_economy',
       {p_action:'buy_potion',p_args:{type,quantity:n}});
-   if(!reply?.ok||reply?.details||false){} // receipt checked below when provided
    if(!reply?.ok)throw Error('SERVER_POTION_NOT_CONFIRMED');
    tell('✅ ซื้อยา '+type.toUpperCase()+' ×'+number(n)+' สำเร็จ ใช้ Gold '+number(n*50));
    const info=$('amber317PotionWallet');
@@ -202,16 +201,29 @@ if(typeof originalBagItem==='function')window.itemClick=function amber317BagItem
 
 /* 5. Resume a lost AUTO timer after UI tabs or Android visibility changes,
       but never during a server AFK session or a dungeon/raid. */
+let lastTickCall=Date.now();
+const originalTick=window.tick;
+if(typeof originalTick==='function')window.tick=function amber317TrackTick(...args){
+ lastTickCall=Date.now();
+ return originalTick.apply(this,args);
+};
 const recovery=()=>{
  try{
   if(document.hidden||!online()||typeof state==='undefined'||!state.auto)return;
   if(window.AMBER_V312?.status?.()?.active)return;
   if($('px26Arena')||window.AMBER_DUNGEON?.isInside?.())return;
-  if(typeof timer==='undefined'||timer)return;
+  if(typeof timer==='undefined')return;
+  // A throttled mobile tab can preserve a dead timer handle. Recover only
+  // after more than 8 seconds without an actual tick invocation.
+  if(timer&&Date.now()-lastTickCall>8000){
+    clearInterval(timer);timer=null;
+  }
+  if(timer)return;
   const target=typeof mob==='function'?mob():null;
   if(!target||['dungeon','worldboss'].includes(target.map))return;
   const speed=Math.max(785,Math.round(830-(Number(state.stats?.AGI)||0)*1.5));
   timer=setInterval(()=>window.tick?.(),speed);
+  lastTickCall=Date.now();
   console.info('[V317] Restored AUTO timer after UI transition');
  }catch(e){console.warn('[V317 AUTO]',e)}
 };
