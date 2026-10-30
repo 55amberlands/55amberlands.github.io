@@ -80,14 +80,15 @@ function crowdList() {
 }
 function renderCrowd(force) {
   const st = ST(); if (!st) return; const host = ensureCrowd(); if (!host) return;
-  const list = crowdList(), sig = list.map(p => p.id + p.lv + p.job + p.n + p.w.w + p.w.we + p.ttl + p.pid).join('|');
+  const list = crowdList(), sig = list.map(p => p.id + p.lv + p.job + p.n + p.w.w + p.w.we + p.ttl + p.pid + (V25().firstRebirthOwner?.(p.id)?'♛':'')).join('|');
   if (force || sig !== cSig) {
     cSig = sig; host.innerHTML = ''; cEls = {};
     host.classList.toggle('many', list.length > 4);
     list.forEach(p => {
       const c = document.createElement('div'); c.className = 'px26-c'; c.dataset.id = p.id;
       const ak = V25().auraKind ? V25().auraKind(p.ttl) : '';
-      c.innerHTML = `<div class="px26-m"><img class="px26-mi" alt=""><i><u></u></i><b class="px26-dmg"></b></div><div class="px26-hw">${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h" src="${heroURL(p)}" alt="${esc(p.n)}"></div><small>${p.pid ? '👥' : ''}${esc(p.n)}</small>${p.ttl && V25().TITLES && V25().TITLES[p.ttl] ? `<div class="px26-t">${V25().titleHTML(p.ttl, true)}</div>` : ''}`;
+      const honorMark=V25().firstRebirthOwner?.(p.id)?`<div class="px319-crownhonor">${V25().firstRebirthBadge(true)}</div>`:'';
+      c.innerHTML = `<div class="px26-m"><img class="px26-mi" alt=""><i><u></u></i><b class="px26-dmg"></b></div><div class="px26-hw">${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h" src="${heroURL(p)}" alt="${esc(p.n)}"></div>${honorMark}<small>${p.pid ? '👥' : ''}${esc(p.n)}</small>${p.ttl && V25().TITLES && V25().TITLES[p.ttl] ? `<div class="px26-t">${V25().titleHTML(p.ttl, true)}</div>` : ''}`;
       host.appendChild(c); cEls[p.id] = c;
     });
   }
@@ -106,7 +107,7 @@ function showPeerCard(id) {
   const p = peers().find(x => x.id === id); if (!p) return; $('px26Peer')?.remove();
   const d = document.createElement('div'); d.id = 'px26Peer'; d.className = 'px26-pop';
   const mine = window.AMBER_MY_PID || '';
-  d.innerHTML = `<b>${esc(p.n)}</b> <small>Lv.${p.lv} ${esc(p.job)}</small><br>${p.ttl && V25().TITLES && V25().TITLES[p.ttl] ? V25().titleHTML(p.ttl, true) + '<br>' : ''}<small>${esc(p.zone)}${p.pid ? ' · 👥 อยู่ในปาร์ตี้' : ''}</small><div class="row">${!FAKE.on ? `<button data-px26="inv" data-id="${esc(p.id)}">📨 ชวนเข้าปาร์ตี้</button>` : ''}${p.pid && p.pid !== mine && !FAKE.on ? `<button data-px26="join" data-pid="${esc(p.pid)}">🙋 ขอเข้าปาร์ตี้นี้</button>` : ''}<button data-px26="x">ปิด</button></div>`;
+  d.innerHTML = `<b>${esc(p.n)}</b> <small>Lv.${p.lv} ${esc(p.job)}</small><br>${V25().firstRebirthOwner?.(p.id)?V25().firstRebirthBadge(true)+'<br>':''}${p.ttl && V25().TITLES && V25().TITLES[p.ttl] ? V25().titleHTML(p.ttl, true) + '<br>' : ''}<small>${esc(p.zone)}${p.pid ? ' · 👥 อยู่ในปาร์ตี้' : ''}</small><div class="row">${!FAKE.on ? `<button data-px26="inv" data-id="${esc(p.id)}">📨 ชวนเข้าปาร์ตี้</button>` : ''}${p.pid && p.pid !== mine && !FAKE.on ? `<button data-px26="join" data-pid="${esc(p.pid)}">🙋 ขอเข้าปาร์ตี้นี้</button>` : ''}<button data-px26="x">ปิด</button></div>`;
   document.body.appendChild(d);
 }
 
@@ -474,7 +475,9 @@ const css = document.createElement('style'); css.textContent = `
 @keyframes px26up{0%{opacity:1;transform:translate(-50%,10px)}100%{opacity:0;transform:translate(-50%,-22px)}}
 .px26-hw{position:relative;height:50px;display:flex;justify-content:center;align-items:flex-end}.px26-h{max-height:50px;max-width:50px;width:auto!important;height:auto!important;image-rendering:pixelated;background:none!important;border-radius:0!important;position:relative;z-index:1}
 .px26-aura{position:absolute;bottom:-4px;left:50%;width:120%;max-width:none!important;transform:translateX(-50%);mix-blend-mode:screen;image-rendering:pixelated;pointer-events:none;background:none!important;border-radius:0!important}
-.px26-c small{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;text-shadow:0 1px 2px #000;background:#0008;border-radius:4px;padding:0 2px}.px26-t{position:absolute;left:50%;transform:translateX(-50%);top:30px;white-space:nowrap}.px26-t .px25-title{font-size:8px;padding:0 6px}
+.px26-c small{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;text-shadow:0 1px 2px #000;background:#0008;border-radius:4px;padding:0 2px}.px319-crownhonor{position:absolute;left:50%;transform:translateX(-50%);top:-18px;z-index:14;pointer-events:none;width:max-content;max-width:none;white-space:nowrap}
+.px319-crownhonor .px319-crown-badge{font-size:8px!important;padding:2px 4px!important}
+.px26-t{position:absolute;left:50%;transform:translateX(-50%);top:30px;white-space:nowrap}.px26-t .px25-title{font-size:8px;padding:0 6px}
 .px26-em{position:absolute;left:50%;top:34px;width:34px;transform:translateX(-50%);image-rendering:pixelated;z-index:5;background:none!important;border-radius:0!important}
 .px26-pop{position:fixed;left:50%;top:40%;transform:translateX(-50%);z-index:99995;background:#1a0e33;border:2px solid #ffd24a;border-radius:12px;padding:10px 14px;text-align:center;box-shadow:0 0 18px #000}.px26-pop .row,.px26-det .row{display:flex;gap:6px;justify-content:center;margin-top:7px;flex-wrap:wrap}
 .px26-hint{color:#d9c8f8;font-size:12.5px;margin:4px 0 8px}.px26-mapcard{background:#150a28;border:1px solid #4a2c86;border-radius:10px;margin:6px 0;padding:6px 8px}.px26-mapcard.here{border-color:#ffd24a}.px26-mapcard .hd{display:flex;gap:8px;align-items:baseline}.px26-mapcard .hd b{flex:1}.px26-mapcard small{color:#bba6e6}
