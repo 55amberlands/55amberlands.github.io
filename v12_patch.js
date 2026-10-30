@@ -27,7 +27,12 @@ function weapon(){A.ensure();return A.G(state.eq?.W)||null}
 function gearType(w){return w?.cls&&CLASSES.includes(w.cls)?w.cls:(state.job==='นักผจญภัย'?'ดาบ':state.job)}
 function combat(){
  const st=state.stats||{},lv=bound(state.lv,1,100);
- const str=Number(st.STR||0),dex=Number(st.DEX||0),int=Number(st.INT||0),vit=Number(st.VIT||0),agi=Number(st.AGI||0),luk=Number(st.LUK||0);
+ // V31.7: V9's legacy ap() temporarily adds gear bonuses into state.stats.
+ // Server combat counts equipped gear separately. Subtract that visual-only
+ // overlay before running this server-mirror to prevent double CRIT/ATK/DEF.
+ const overlay=state._ad&&typeof state._ad==='object'?state._ad:{};
+ const base=k=>Number(st[k]||0)-Number(overlay[k]||0);
+ const str=base('STR'),dex=base('DEX'),int=base('INT'),vit=base('VIT'),agi=base('AGI'),luk=base('LUK');
  const cls=state.job;
  const focus=cls==='ดาบ'?str*.42:cls==='หมัด'?agi*.96:cls==='ธนู'?dex*1.03:cls==='จอมเวท'?int*1.08:0;
  // V28.5: Visual-only mirror of the server's item registry combat formula.
