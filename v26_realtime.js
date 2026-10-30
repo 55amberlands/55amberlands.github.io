@@ -264,12 +264,12 @@ function paintArena(force) {
   $('px26Hp').style.width = pct + '%'; $('px26HpT').textContent = fmt(left) + ' / ' + fmt(max) + ' (' + pct.toFixed(1) + '%)';
   const w = safe(() => V25().wbWindow(), { open: false, end: 0 }), tl = ARENA.practice ? '' : (w.open ? '⏳ เหลือ ' + Math.max(0, Math.floor((w.end - Date.now()) / 60000)) + ' นาที' : '');
   $('px26Time').textContent = tl + ' · 👥 ' + all.length + ' คน · ' + adm.keys.length + '/10 ปาร์ตี้';
-  const mineIn = ARENA.serverMode || adm.keys.includes(ARENA.me.pid), sig = all.map(p => p.id + p.pid + p.lv + p.ttl + p.w.we).join('|') + adm.keys.join(',');
+  const mineIn = ARENA.serverMode || adm.keys.includes(ARENA.me.pid), sig = all.map(p => p.id + p.pid + p.lv + p.ttl + p.w.we + (V25().firstRebirthOwner?.(p.id)?'♛':'')).join('|') + adm.keys.join(',');
   if (force || sig !== lastField) {
     lastField = sig; const n = all.length, size = n <= 14 ? 58 : n <= 30 ? 46 : 38;
     const groups = adm.keys.map(k => ({ k, ps: all.filter(p => p.pid === k) }));
     $('px26Field').style.setProperty('--sz', size + 'px');
-    $('px26Field').innerHTML = '<div class="px26-party-stack">' + groups.map((g, gi) => `<div class="px26-grp" style="--c:${pcol(g.k)}"><b>${g.ps.some(p => p.me) ? '⭐ ปาร์ตี้ของคุณ' : 'ปาร์ตี้ ' + (gi + 1)} <small>${g.ps.length} คน</small></b><div class="rw">${g.ps.map(p => { const ak = V25().auraKind ? V25().auraKind(p.ttl) : ''; return `<div class="px26-ap${p.me ? ' me' : ''}" data-pid="${esc(p.id)}">${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h atk" src="${heroURL({ job: p.job, g: p.g, w: p.w })}" alt=""><small>${esc(p.n)}</small><em class="dm" data-dm="${esc(p.id)}"></em></div>`; }).join('')}</div></div>`).join('') + (adm.full ? '<p class="px26-warn">🚫 มีผู้เข้าร่วมครบ 10 ปาร์ตี้แล้ว — ปาร์ตี้ใหม่รอรอบหน้า</p>' : '') + '</div>';
+    $('px26Field').innerHTML = '<div class="px26-party-stack">' + groups.map((g, gi) => `<div class="px26-grp" style="--c:${pcol(g.k)}"><b>${g.ps.some(p => p.me) ? '⭐ ปาร์ตี้ของคุณ' : 'ปาร์ตี้ ' + (gi + 1)} <small>${g.ps.length} คน</small></b><div class="rw">${g.ps.map(p => { const ak = V25().auraKind ? V25().auraKind(p.ttl) : ''; const honorMark=V25().firstRebirthOwner?.(p.id)?`<div class="px319-arena-honor">${V25().firstRebirthBadge(true)}</div>`:''; return `<div class="px26-ap${p.me ? ' me' : ''}" data-pid="${esc(p.id)}">${honorMark}${ak ? `<img class="px26-aura" src="${PX.ui.auraURL(ak)}" alt="">` : ''}<img class="px26-h atk" src="${heroURL({ job: p.job, g: p.g, w: p.w })}" alt=""><small>${esc(p.n)}</small><em class="dm" data-dm="${esc(p.id)}"></em></div>`; }).join('')}</div></div>`).join('') + (adm.full ? '<p class="px26-warn">🚫 มีผู้เข้าร่วมครบ 10 ปาร์ตี้แล้ว — ปาร์ตี้ใหม่รอรอบหน้า</p>' : '') + '</div>';
   }
   const rank = ARENA.serverMode ? (ARENA.server?.ranking || []) : all.slice().sort((a,b) => b.d-a.d).slice(0,5);
   const rankText = ARENA.serverMode ? rank.map((p,i) => `${p.rank || i+1}.${esc(p.name)} ${fmt(p.damage)}`).join(' · ')
@@ -477,6 +477,8 @@ const css = document.createElement('style'); css.textContent = `
 .px26-aura{position:absolute;bottom:-4px;left:50%;width:120%;max-width:none!important;transform:translateX(-50%);mix-blend-mode:screen;image-rendering:pixelated;pointer-events:none;background:none!important;border-radius:0!important}
 .px26-c small{display:block;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;text-shadow:0 1px 2px #000;background:#0008;border-radius:4px;padding:0 2px}.px319-crownhonor{position:absolute;left:50%;transform:translateX(-50%);top:-18px;z-index:14;pointer-events:none;width:max-content;max-width:none;white-space:nowrap}
 .px319-crownhonor .px319-crown-badge{font-size:8px!important;padding:2px 4px!important}
+.px319-arena-honor{position:absolute;left:50%;top:-22px;transform:translateX(-50%);z-index:17;pointer-events:none;width:max-content;max-width:none;white-space:nowrap}
+.px319-arena-honor .px319-crown-badge{font-size:8px!important;padding:2px 4px!important}
 .px26-t{position:absolute;left:50%;transform:translateX(-50%);top:30px;white-space:nowrap}.px26-t .px25-title{font-size:8px;padding:0 6px}
 .px26-em{position:absolute;left:50%;top:34px;width:34px;transform:translateX(-50%);image-rendering:pixelated;z-index:5;background:none!important;border-radius:0!important}
 .px26-pop{position:fixed;left:50%;top:40%;transform:translateX(-50%);z-index:99995;background:#1a0e33;border:2px solid #ffd24a;border-radius:12px;padding:10px 14px;text-align:center;box-shadow:0 0 18px #000}.px26-pop .row,.px26-det .row{display:flex;gap:6px;justify-content:center;margin-top:7px;flex-wrap:wrap}
