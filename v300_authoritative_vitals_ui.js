@@ -11,7 +11,7 @@
   const cloud=()=>window.AMBER_CLOUD;
   let cache=null, pending=false, retryAfter=0, serial=0;
   const sane=n=>Number.isFinite(Number(n))?Number(n):0;
-  const rawStat=k=>Math.max(0,sane(state?.stats?.[k])-sane(state?._ad?.[k]));
+  const rawStat=k=>Math.max(0,sane(state?.stats?.[k]));
   const userId=()=>String(cloud()?.getUser?.()?.id||'');
   function fingerprint(){
     const eq=state?.eq||{},gear=Array.isArray(state?.gear)?state.gear:[];
@@ -24,8 +24,8 @@
       rawStat('VIT'),rawStat('INT'),state?.job,equip]);
   }
   function fallback(){
-    // Use only server-style, allocated stats; never trust legacy temporary gear
-    // stat proxies (state._ad) or client-only card bonus as real health.
+    // Preview uses the persisted stat mirror until Supabase replies. It never writes
+    // HP, MP or equipment bonuses; server max_hp/max_mp replace this estimate.
     const lv=Math.max(1,Math.min(100,Math.round(sane(state?.lv)||1)));
     const rb=Math.max(0,Math.min(10,Math.round(sane(state?.v25?.rebirth))));
     const vit=rawStat('VIT'),intel=rawStat('INT');

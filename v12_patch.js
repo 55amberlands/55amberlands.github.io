@@ -25,13 +25,12 @@ const STAT_DESC={
 let lastSkill='',weaponIcons=new Map();
 function weapon(){A.ensure();return A.G(state.eq?.W)||null}
 function gearType(w){return w?.cls&&CLASSES.includes(w.cls)?w.cls:(state.job==='นักผจญภัย'?'ดาบ':state.job)}
-function combat(){
+function combatLocalMirror(){
  const st=state.stats||{},lv=bound(state.lv,1,100);
- // V31.7: V9's legacy ap() temporarily adds gear bonuses into state.stats.
- // Server combat counts equipped gear separately. Subtract that visual-only
- // overlay before running this server-mirror to prevent double CRIT/ATK/DEF.
- const overlay=state._ad&&typeof state._ad==='object'?state._ad:{};
- const base=k=>Number(st[k]||0)-Number(overlay[k]||0);
+ // V31.8: local combat is an untrusted preview only. The canonical server
+ // snapshot overrides it and includes verified card and boss set bonuses.
+ // Never subtract legacy _ad metadata from server-owned persisted stats.
+ const base=k=>Number(st[k]||0);
  const str=base('STR'),dex=base('DEX'),int=base('INT'),vit=base('VIT'),agi=base('AGI'),luk=base('LUK');
  const cls=state.job;
  const focus=cls==='ดาบ'?str*.42:cls==='หมัด'?agi*.96:cls==='ธนู'?dex*1.03:cls==='จอมเวท'?int*1.08:0;
@@ -65,6 +64,75 @@ function combat(){
   maxHp:Math.round(maxHp()),maxMp:Math.round(maxMp())
  }
 }
+
+/* V31.8: canonical combat, verified cards, boss set and vitals from Supabase.
+   Read-only; it cannot spend points, change player saves, or mint bonuses.
+   Server values override the legacy browser mirror only after validation. */
+const powerBridge=(()=>{
+ let snapshot=null,working=false,lastAttempt=0,retryAfter=0;
+ const cloud=()=>window.AMBER_CLOUD;
+ const who=()=>String(cloud()?.getUser?.()?.id||'');
+ const fingerprint=()=>{
+  const eq=state?.eq||{},bag=Array.isArray(state?.gear)?state.gear:[];
+  return JSON.stringify([who(),Number(state?.lv)||0,state?.job,Number(state?.v25?.rebirth)||0,
+   Object.entries(state?.stats||{}).sort((a,b)=>a[0].localeCompare(b[0])),
+   ['W','S','G','B','R'].map(slot=>{
+     const id=String(eq[slot]||'');
+     const g=bag.find(x=>String(x.id)===id);
+     return [slot,id,Number(g?.enh)||0];
+   })]);
+ };
+ const get=()=>{const u=who();return u&&snapshot?.user===u&&snapshot.key===fingerprint()?snapshot.data:null;};
+ const verify=d=>{
+  const c=d?.combat||{},v=d?.vitals||{};
+  return d?.ok===true && Number.isFinite(Number(c.atk)) && Number.isFinite(Number(c.def))
+    && Number.isFinite(Number(c.crit)) && Number.isFinite(Number(c.accuracy))
+    && Number.isFinite(Number(v.max_hp)) && Number.isFinite(Number(v.max_mp))
+    && Number(c.atk)>=1 && Number(c.atk)<=150000 && Number(c.def)>=0 && Number(c.def)<=150000
+    && Number(c.crit)>=0 && Number(c.crit)<=0.8 && Number(v.max_hp)>0 && Number(v.max_mp)>0
+    && Number(v.max_hp)<=500000 && Number(v.max_mp)<=500000;
+ };
+ async function refresh(force=false){
+  const sdk=cloud()?.getClient?.(),u=who();
+  if(!sdk||!u||!cloud()?.getStatus?.()?.cloudReady||working)return;
+  const now=Date.now(),key=fingerprint();
+  if(now<retryAfter||now-lastAttempt<2000)return;
+  if(!force&&get()&&now-lastAttempt<12000)return;
+  lastAttempt=now;working=true;
+  try{
+   const {data,error}=await sdk.rpc('amber_v318_power_snapshot');
+   if(error)throw error;
+   if(!verify(data))throw Error('INVALID_SERVER_POWER_SNAPSHOT');
+   if(who()!==u||fingerprint()!==key)return;
+   snapshot={user:u,key,data};
+   statStrip();updateExtended();
+   // The player profile displays the same canonical combat() values when reopened.
+  }catch(err){
+   retryAfter=Date.now()+4000;
+   console.warn('[V31.8 power read]',err);
+  }finally{working=false;}
+ }
+ return {get,refresh};
+})();
+function combat(){
+ const local=combatLocalMirror();
+ const s=powerBridge.get();
+ if(!s){void powerBridge.refresh();return local;}
+ const c=s.combat,v=s.vitals;
+ return {...local,atk:Number(c.atk),def:Number(c.def),crit:Number(c.crit),
+  accuracy:Number(c.accuracy),maxHp:Number(v.max_hp),maxMp:Number(v.max_mp)};
+}
+window.AMBER_V318_POWER=Object.freeze({
+ refresh:()=>powerBridge.refresh(true),get:()=>powerBridge.get(),version:'31.8',
+ authoritative:true
+});
+window.addEventListener('pageshow',()=>void powerBridge.refresh(true));
+document.addEventListener('visibilitychange',()=>{
+ if(!document.hidden)void powerBridge.refresh(true);
+});
+setInterval(()=>{if(!document.hidden)void powerBridge.refresh();},12000);
+setTimeout(()=>void powerBridge.refresh(true),1100);
+
 const mhBefore=maxHp, mmBefore=maxMp;
 maxHp=function(){const rb=Math.max(0,Math.min(10,Number(state.v25?.rebirth)||0));return Math.max(1,Math.round(mhBefore()+Math.max(0,((state.stats||{}).VIT||0)-10)*8+rb*1500))}; // V299_UI_REBIRTH_VITALS
 maxMp=function(){const rb=Math.max(0,Math.min(10,Number(state.v25?.rebirth)||0));return Math.max(1,Math.round(mmBefore()+Math.max(0,((state.stats||{}).INT||0)-5)*3+rb*400))};
@@ -132,14 +200,14 @@ function partyDecorate(){
 function statStrip(){
  const parent=document.querySelector('.statsline');if(!parent)return;
  let e=$('amberStatStrip');if(!e){e=document.createElement('div');e.id='amberStatStrip';parent.appendChild(e)}
- const c=combat();e.innerHTML=`<span>⚔️ ATK <b>${c.atk}</b></span><span>🛡️ DEF <b>${c.def}</b></span><span>💥 CRIT <b>${(c.crit*100).toFixed(1)}%</b></span><span>🎯 HIT <b>${(c.accuracy*100).toFixed(1)}%</b></span><span>💨 EVA <b>${(c.dodge*100).toFixed(1)}%</b></span><span>⚡ ASPD <b>${c.aspd.toFixed(2)}/s</b></span>`;
+ const c=combat();e.innerHTML=`<span>⚔️ ATK <b>${c.atk}</b></span><span>🛡️ DEF <b>${c.def}</b></span><span>💥 CRIT <b>${(c.crit*100).toFixed(1)}%</b></span><span>🎯 HIT <b>${(c.accuracy*100).toFixed(1)}%</b></span><span>💨 EVA <b>${(c.dodge*100).toFixed(1)}%</b></span><span>⚡ ASPD <b>${c.aspd.toFixed(2)}/s</b></span><span>${powerBridge.get()?'✅ Supabase':'⏳ ซิงก์พลัง'}</span>`;
  let label=$('amberEquippedLabel');if(!label){label=document.createElement('div');label.id='amberEquippedLabel';parent.appendChild(label)}
  const w=weaponInfo();label.textContent=w?'🗡️ '+w.name+(w.enh?' +'+w.enh:''):'🗡️ '+(state.equip||'อาวุธเริ่มต้น');
  if(state.lv>=100){state.lv=100;state.xp=0;const xp=$('expPercent');if(xp)xp.textContent='MAX LEVEL 100';const xpbar=$('pxp')?.querySelector('.fill');if(xpbar)xpbar.style.width='100%';const lab=$('pxp')?.querySelector('.barlabel');if(lab)lab.textContent='MAX / MAX'}
 }
 function details(){const c=combat();return `<h3 style="margin:12px 0 7px">📊 ค่าพลังปัจจุบัน (รวมอุปกรณ์)</h3><div id="amberExtended" class="amber-metrics">
   ${[['ATK โจมตี',c.atk],['DEF ป้องกัน',c.def],['HP สูงสุด',c.maxHp],['MP สูงสุด',c.maxMp],['ความแม่นยำ',(c.accuracy*100).toFixed(1)+'%'],['หลบหลีก',(c.dodge*100).toFixed(1)+'%'],['คริติคอล',(c.crit*100).toFixed(1)+'%'],['ตี AUTO',c.aspd.toFixed(2)+' ครั้ง/วินาที'],['คลาส',state.job],['เลเวล',state.lv+'/100']].map(([k,v])=>`<div><small>${safe(k)}</small><b>${safe(v)}</b></div>`).join('')}
- </div><p class="hint">ค่าสเตตัสเปลี่ยนผลการต่อสู้จริง ได้แก่ ดาเมจ ความแม่นยำ HP MP การป้องกัน การหลบหลีก คริติคอล และความเร็ว AUTO · สายอาชีพต่างกันใช้สเตตัสหลักต่างกัน</p>`}
+ </div>${powerBridge.get()?(()=>{const p=powerBridge.get(),ca=p.cards||{},b=p.boss_set||{};return '<p class="hint" style="color:#b8ffdc">🛡️ ยืนยัน Supabase · 🃏 การ์ด ATK +'+(Number(ca.ATK)||0)+' DEF +'+(Number(ca.DEF)||0)+' HP +'+(Number(ca.HP)||0)+' MP +'+(Number(ca.MP)||0)+' · 👑 ชุดบอส '+(Number(b.pieces)||0)+'/5 (ATK +'+(Number(b.ATK)||0)+', DEF +'+(Number(b.DEF)||0)+')</p>'})():'<p class="hint">⏳ กำลังซิงก์ค่าพลังจริงและโบนัสการ์ดจาก Supabase</p>'}<p class="hint">ค่าสเตตัสเปลี่ยนผลการต่อสู้จริง ได้แก่ ดาเมจ ความแม่นยำ HP MP การป้องกัน การหลบหลีก คริติคอล และความเร็ว AUTO · สายอาชีพต่างกันใช้สเตตัสหลักต่างกัน</p>`}
 function updateExtended(){const old=$('amberExtended');if(old){const d=document.createElement('div');d.innerHTML=details();old.replaceWith(d.querySelector('#amberExtended'))}}
 const originalStatRows=statRows;
 statRows=function(){
