@@ -177,7 +177,7 @@ window.statRows=function amber314StatRows(){
  if(!el||typeof state==='undefined')return;
  const available=Math.max(0,Number(state.points)||0);
  el.innerHTML=amber314StatKinds.filter(k=>Object.prototype.hasOwnProperty.call(state.stats||{},k)).map(k=>{
-   const value=Number(state.stats[k])||0;
+   const value=Math.max(0,(Number(state.stats[k])||0)-(Number(state._ad?.[k])||0));
    return '<div class="statrow amber314-stat" style="display:flex;flex-wrap:wrap;gap:5px;padding:8px 4px;align-items:center">'
      +'<b style="min-width:42px">'+k+'</b><span style="min-width:55px;text-align:right;font-variant-numeric:tabular-nums">'+value.toLocaleString('th-TH')+'</span>'
      +'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-left:auto">'
@@ -193,7 +193,7 @@ window.upStat=async function amber314LiveStat(st,amount=1){
  if(!amber314StatKinds.includes(st)||!amber314Amounts.includes(n)||amber314StatPending)return;
  if(!window.AMBER_V277?.ready?.()){tell('🔒 ต้องเชื่อม Supabase ก่อนอัปสเตตัส');return;}
  if(Number(state.points||0)<n){tell('แต้มสเตตัสไม่พอสำหรับ +'+n);return;}
- if((Number(state.stats?.[st])||0)+n>10000){tell('สเตตัสเต็ม 10,000 แล้ว');return;}
+ if((Number(state.stats?.[st])||0)-(Number(state._ad?.[st])||0)+n>10000){tell('สเตตัสเต็ม 10,000 แล้ว');return;}
  amber314StatPending=true;
  const root=document.getElementById('statrows'),scrollY=root?.parentElement?.scrollTop||0;
  window.statRows();
