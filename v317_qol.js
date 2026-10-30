@@ -29,9 +29,8 @@ window.showSkillPath=function amber317SkillPath(path){
   +skills.map(sk=>{
    const done=learned.has(sk.id);
    const levelOK=level>=Number(sk.level)||reborn();
-   // Server checks allocated base stats, not the temporary visual equipment overlay.
-   const allocated=Math.max(0,(Number(state.stats?.[key])||0)-(Number(state._ad?.[key])||0));
-   const statOK=allocated>=Number(sk.stat);
+   // Server validates the persisted stats in amber_v277_economy; never apply an extra legacy overlay subtraction.
+   const statOK=(Number(state.stats?.[key])||0)>=Number(sk.stat);
    const okay=!done&&levelOK&&statOK&&available>0;
    const why=done?'เรียนแล้ว':!levelOK?'Lv. ไม่ถึง':!statOK?'สเตตัสไม่ถึง':available<1?'แต้มไม่พอ':'เรียน';
    return '<div class="skillrow"><img src="'+escaped(image(sk.icon))+'" alt="">'
@@ -129,7 +128,7 @@ const setRawGearDisplay=(root,base,opts,enh)=>{
  const factor=1+Math.max(0,Math.min(10,Number(enh)||0))*0.10;
  if(baseRow){
   const b=baseRow.querySelector('b');
-  if(b)b.textContent=Object.entries(base||{}).map(([k,v])=>(statName[k]||k)+' +'+number(Number(v)*((k==='ATK'||k==='DEF')?factor:1))).join(' · ')||'ไม่มี';
+  if(b)b.textContent=Object.entries(base||{}).map(([k,v])=>(statName[k]||k)+' +'+number(Number(v)*(['ATK','DEF','HP','MP','VIT','INT'].includes(k)?factor:1))).join(' · ')||'ไม่มี';
  }
  const optRows=rows.filter(row=>row.querySelector('span')?.textContent.trim().startsWith('✦'));
  for(let i=0;i<Math.min(optRows.length,(opts||[]).length);i++){
@@ -253,6 +252,6 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
 window.addEventListener('pageshow',()=>setTimeout(recovery,400));
 setInterval(recovery,5000);
 
-window.AMBER_V317_QOL=Object.freeze({version:'31.7.3',serverSkills:true,potionQuantityMax:1000,comparison:'server',bagReturn:true,autoTimerRecovery:true});
-console.info('[V31.7.3] Skill feedback and gear display verified');
+window.AMBER_V317_QOL=Object.freeze({version:'31.8',serverSkills:true,potionQuantityMax:1000,comparison:'server',bagReturn:true,autoTimerRecovery:true});
+console.info('[V31.8] Skill validations and equipment values aligned with Supabase');
 })();
