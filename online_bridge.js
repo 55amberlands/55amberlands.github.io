@@ -17,6 +17,7 @@
   });
   const primarySb=sb;
   let rescuedAuth=null;
+  let bootAccessToken='';
   let currentUser=null, room=null, cloudBusy=false, timer=null, changedAuth=false, creating=false;
   let marketVersion=0, marketBusy=false;
   const classIndex={'ดาบ':0,'หมัด':1,'ธนู':2,'จอมเวท':3,'นักผจญภัย':4};
@@ -146,6 +147,7 @@
     });
     recovered.realtime?.setAuth?.(session.access_token);
     sb=recovered;
+    bootAccessToken=session.access_token;
     rescuedAuth={token:session.access_token,expiry:Number(session.expires_at),lastProbe:0};
     console.warn('[AMBER LOGIN V32.2] Using valid cached JWT while Auth refresh is slow; Supabase RLS still required');
     return session.user;
@@ -185,6 +187,7 @@
       const {data,error}=await authTimeout(sb.auth.getSession(),'GOOGLE_SESSION',9500);
       if(error)throw error;
       session=data?.session||null;
+      bootAccessToken=session?verifiedBootToken(session):'';
     }catch(err){
       if(transientAuthProblem(err)){
         const cached=useCachedGoogleSession();
@@ -346,15 +349,77 @@
       }finally{creating=false;submit.disabled=false}
     });
   })}
+
+  /* V32.3 — The character snapshot is the login's highest-priority read.
+     Supabase Auth refresh-token timeouts can leave the SDK's auth mutex held
+     even after getUser succeeds. Use the same unexpired JWT via direct HTTPS
+     and let PostgREST + RLS validate ownership. Never read device save here. */
+  function verifiedBootToken(session){
+    try{
+      if(typeof session?.access_token!=='string'||!session.user?.id)return '';
+      const parts=session.access_token.split('.');
+      if(parts.length!==3)return '';
+      const claims=JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
+      const now=Math.floor(Date.now()/1000);
+      if(claims.sub!==session.user.id||!Number.isInteger(claims.exp)||
+         claims.exp<=now+35||Number(session.expires_at||0)<=now+35)return '';
+      return session.access_token;
+    }catch(_){return '';}
+  }
+  async function priorityCharacterRead(){
+    const userId=String(currentUser?.id||'');
+    if(!/^[0-9a-f-]{36}$/i.test(userId))throw Error('GOOGLE_ACCOUNT_INVALID');
+    const token=bootAccessToken||verifiedBootToken(savedGoogleSession());
+    if(!token)throw Error('GOOGLE_ACCESS_TOKEN_EXPIRED: กรุณาลงชื่อเข้าใช้ Google ใหม่');
+    const endpoint=new URL('/rest/v1/'+SAVE_TABLE,PROJECT_URL);
+    endpoint.searchParams.set('select','save_data,character_name,market_version');
+    endpoint.searchParams.set('user_id','eq.'+userId);
+    endpoint.searchParams.set('limit','1');
+    let last=null;
+    for(let attempt=1;attempt<=3;attempt++){
+      const controller=new AbortController();
+      const deadline=setTimeout(()=>controller.abort(),11500);
+      try{
+        const response=await fetch(endpoint.toString(),{
+          method:'GET',cache:'no-store',signal:controller.signal,
+          headers:{'apikey':PUBLISHABLE_KEY,'Authorization':'Bearer '+token,'Accept':'application/json'}
+        });
+        if(response.status===401||response.status===403)
+          throw Error('GOOGLE_ACCESS_DENIED_'+response.status+': กรุณาลงชื่อเข้าใช้ Google ใหม่');
+        if(!response.ok){
+          let body=null;try{body=await response.json();}catch(_){}
+          const code=String(body?.code||'HTTP_'+response.status).slice(0,30);
+          const err=Error('CHARACTER_SERVER_'+response.status+'_'+code);
+          err.transient=[408,429,500,502,503,504].includes(response.status)||code==='PGRST003';
+          throw err;
+        }
+        const rows=await response.json();
+        if(!Array.isArray(rows)||rows.length>1||rows.some(r=>!r||typeof r!=='object'))
+          throw Error('CHARACTER_RESPONSE_INVALID');
+        if(rows[0]&&(!rows[0].save_data||typeof rows[0].save_data!=='object'))
+          throw Error('CHARACTER_SAVE_INVALID: ต้องตรวจสอบข้อมูลบนเซิร์ฟเวอร์');
+        return {data:rows[0]||null,error:null};
+      }catch(err){
+        last=err;
+        if(err?.name==='AbortError')last=Error('CHARACTER_REQUEST_NETWORK_TIMEOUT');
+        const transient=err?.name==='AbortError'||err?.transient===true||
+          /Failed to fetch|NetworkError|Load failed/i.test(String(err?.message||''));
+        if(!transient||attempt===3)break;
+        onlineBootStage='อ่านเซฟจาก Supabase · ครั้งที่ '+(attempt+1)+'/3';
+        showMessage('⏳ เซิร์ฟเวอร์แออัด กำลังเชื่อมต่อเซฟเดิมอีกครั้ง ('+(attempt+1)+'/3)');
+        // One in-flight request maximum; backoff rather than flooding PostgREST.
+        await pause(attempt===1?1800:3800);
+      }finally{clearTimeout(deadline);}
+    }
+    throw last||Error('CHARACTER_LOAD_UNAVAILABLE');
+  }
+
   async function loadCloud(){
     onlineBootStage='อ่านข้อมูลตัวละครจาก Supabase';
     showMessage('กำลังโหลดตัวละครจากบัญชี Google...');
     // The RLS-protected character row is the only required login fetch.
     // Profile/roster metadata may time out under load and must not block play.
-    const {data,error}=await authTimeout(
-      sb.from(SAVE_TABLE).select('save_data,character_name,market_version')
-        .eq('user_id',currentUser.id).maybeSingle(),
-      'CHARACTER_LOAD',14500);
+    const {data,error}=await priorityCharacterRead();
     if(error)throw error;
     marketVersion=Number(data?.market_version)||0;
     let remote=data?.save_data&&typeof data.save_data==='object'&&Object.keys(data.save_data).length?data.save_data:null;
@@ -378,8 +443,13 @@
       if(typeof stop==='function')stop();
       state={...starter(),...remote,gender:remote.gender||profile?.gender||'male',character_created:true,party:1,auto:false};
     }else{
-      if(rescuedAuth)throw Error('GOOGLE_RECOVERY_NO_CHARACTER: ไม่พบเซฟบนเซิร์ฟเวอร์ กรุณาลงชื่อเข้าใช้ Google ใหม่');
-      // A new Google account always creates a new character; never silently import another device's local save.
+      // An existing player's cloud character must never be silently replaced
+      // due to a transient permission/replication fault returning an empty row.
+      let samePriorGoogleAccount=false;
+      try{samePriorGoogleAccount=localStorage.getItem('amber_cloud_last_user')===currentUser.id;}catch(_){}
+      if(rescuedAuth||samePriorGoogleAccount)
+        throw Error('CHARACTER_MISSING_FOR_EXISTING_ACCOUNT: เซฟเดิมไม่ปรากฏบนเซิร์ฟเวอร์ กรุณาลองใหม่ ห้ามสร้างตัวละครทับ');
+      // A genuinely new Google account can still create its first character.
       // If a beta cloud save already exists, preserve its progress while recording name/gender one time.
       onlineBootStage='สร้างตัวละครครั้งแรก';
       const created=await firstCharacter(remote);
@@ -417,7 +487,7 @@
         showMessage('⏳ เซิร์ฟเวอร์ Supabase ตอบช้าผิดปกติ (ขั้นตอน: '+onlineBootStage+') · ตัวละครยังอยู่บนเซิร์ฟเวอร์');
         controls([['🔄 ลองเชื่อมต่ออีกครั้ง',()=>location.reload()]]);
       }
-    },18000);
+    },44000);
     if(!sb){showMessage('ไม่สามารถโหลด Supabase SDK ได้ กรุณาต่ออินเทอร์เน็ตแล้วรีเฟรช');controls([['ลองอีกครั้ง',()=>location.reload()]]);return}
     try{
       onlineBootStage='ตรวจสอบ Google Login';
