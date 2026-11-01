@@ -9,7 +9,7 @@
     console.warn('[V300] HP/MP bridge waiting for game boot');return;
   }
   const cloud=()=>window.AMBER_CLOUD;
-  let cache=null, pending=false, retryAfter=0, serial=0;
+  let cache=null, pending=false, retryAfter=0, serial=0, failures=0;
   const sane=n=>Number.isFinite(Number(n))?Number(n):0;
   const rawStat=k=>Math.max(0,sane(state?.stats?.[k]));
   const userId=()=>String(cloud()?.getUser?.()?.id||'');
@@ -50,7 +50,7 @@
     if(!cloud()?.getStatus?.()?.cloudReady || !sdk || !userId())return;
     const key=fingerprint();
     if(pending || Date.now()<retryAfter)return;
-    if(!force && cache?.key===key && Date.now()-cache.time<15000)return;
+    if(!force && cache?.key===key && Date.now()-cache.time<60000)return;
     pending=true;
     const id=++serial;
     try {
@@ -63,10 +63,12 @@
       if(id===serial && key===fingerprint()){
         const was=cache?.max_hp!==hp || cache?.max_mp!==mp || cache?.key!==key;
         cache={key,max_hp:hp,max_mp:mp,time:Date.now()};
+        failures=0;retryAfter=0;
         if(was)previousRenderTop();
       }
     } catch(err){
-      retryAfter=Date.now()+3500;
+      failures=Math.min(5,failures+1);
+      retryAfter=Date.now()+Math.min(300000,30000*2**(failures-1));
       console.warn('[V300] Could not sync HP/MP maximum from Supabase',err);
     } finally {
       pending=false;
@@ -76,7 +78,7 @@
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh(true)});
   window.addEventListener('pageshow',()=>refresh(true));
   window.addEventListener('focus',()=>refresh(true));
-  setInterval(()=>refresh(true),16000);
+  setInterval(()=>{if(!document.hidden)refresh(false)},60000);
   setTimeout(()=>refresh(true),1000);
   console.info('[55 AMBERLANDS V300] HP/MP maximums now read from verified Supabase equipment stats');
 })();
