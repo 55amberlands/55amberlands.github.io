@@ -311,7 +311,7 @@
     onlineBootStage='ซิงก์โปรไฟล์';
     // Profile sync is cosmetic/social only. Failure must not lock out an
     // authenticated user whose server character was loaded successfully.
-    try{await syncProfile(true);}catch(e){
+    try{await authTimeout(syncProfile(true),'PROFILE_SYNC',5500);}catch(e){
       console.warn('[AMBER ONLINE] Profile synchronization delayed; character retained',e);
     }
     onlineBootStage='ตรวจสอบไฟล์เกม';
