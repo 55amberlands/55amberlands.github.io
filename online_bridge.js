@@ -12,9 +12,11 @@
   const STATUS = {signedIn:false, cloudReady:false, realtime:false, message:'กำลังเริ่มระบบออนไลน์'};
   const pause = ms => new Promise(r => setTimeout(r, ms));
   window.AMBER_ONLINE_GAME=true;
-  const sb = window.supabase?.createClient?.(PROJECT_URL, PUBLISHABLE_KEY, {
+  let sb = window.supabase?.createClient?.(PROJECT_URL, PUBLISHABLE_KEY, {
     auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
   });
+  const primarySb=sb;
+  let rescuedAuth=null;
   let currentUser=null, room=null, cloudBusy=false, timer=null, changedAuth=false, creating=false;
   let marketVersion=0, marketBusy=false;
   const classIndex={'ดาบ':0,'หมัด':1,'ธนู':2,'จอมเวท':3,'นักผจญภัย':4};
@@ -97,7 +99,7 @@
     if(/Google|GOOGLE|SESSION|VERIFY|TOKEN|401|403|JWT|invalid.*refresh/i.test(context+' '+reason))
       actions.push(['🔐 ลงชื่อเข้าใช้ Google ใหม่',async()=>{
         showMessage('กำลังเปิด Google Login...');
-        const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname,prompt:'select_account'}});
+        const {error}=await googleSignInFresh();
         if(error)showError(error,'Google Login');
       }]);
     controls(actions);
@@ -105,27 +107,110 @@
   function authTimeout(p,label,ms=10000){
     return Promise.race([p,new Promise((_,reject)=>setTimeout(()=>reject(Error(label+'_TIMEOUT')),ms))]);
   }
+  // V32.2: Supabase Auth can stall on refresh-token lookups (500/504).
+  // Recover only a cached, NONEXPIRED Google JWT; server RLS still verifies it.
+  // Never use browser-only/guest character data as an authentication substitute.
+  function savedGoogleSession(){
+    try{
+      const ref=new URL(PROJECT_URL).hostname.split('.')[0];
+      const stored=localStorage.getItem('sb-'+ref+'-auth-token');
+      const s=stored?JSON.parse(stored):null;
+      if(!s || typeof s.access_token!=='string' || !s.user?.id) return null;
+      const chunks=s.access_token.split('.');
+      if(chunks.length!==3) return null;
+      const claim=JSON.parse(atob(chunks[1].replace(/-/g,'+').replace(/_/g,'/')));
+      const now=Math.floor(Date.now()/1000);
+      if(!Number.isInteger(claim.exp)||claim.exp<now+120 ||
+         !/^[0-9a-f-]{36}$/i.test(String(claim.sub||'')) ||
+         claim.sub!==s.user.id ||
+         Number(s.expires_at||0)<now+120) return null;
+      return s;
+    }catch(_){return null;}
+  }
+  function useCachedGoogleSession(){
+    const session=savedGoogleSession();
+    if(!session || !window.supabase?.createClient)return null;
+    // Separate in-memory storage AND lock key avoid reusing the SDK's
+    // blocked refresh-token lock. No token or credentials leave Supabase.
+    const memory=new Map();
+    const key='amber_v322_recovery_session';
+    memory.set(key,JSON.stringify(session));
+    const storage={
+      getItem:k=>memory.get(k)??null,
+      setItem:(k,v)=>{memory.set(k,String(v));},
+      removeItem:k=>{memory.delete(k);}
+    };
+    const recovered=window.supabase.createClient(PROJECT_URL,PUBLISHABLE_KEY,{
+      auth:{persistSession:true,autoRefreshToken:false,
+        detectSessionInUrl:false,storageKey:key,storage},
+    });
+    recovered.realtime?.setAuth?.(session.access_token);
+    sb=recovered;
+    rescuedAuth={token:session.access_token,expiry:Number(session.expires_at),lastProbe:0};
+    console.warn('[AMBER LOGIN V32.2] Using valid cached JWT while Auth refresh is slow; Supabase RLS still required');
+    return session.user;
+  }
+  function transientAuthProblem(error){
+    const m=String(error?.message||error||'');
+    return /TIMEOUT|504|503|500|fetch|network|gateway|abort|temporar|context deadline|refresh token/i.test(m)
+      || [500,502,503,504].includes(Number(error?.status));
+  }
+  // If the original client recovers in another tab/async refresh, adopt its
+  // newer valid session without disrupting the character or gameplay state.
+  setInterval(()=>{
+    if(!rescuedAuth||!STATUS.cloudReady)return;
+    const next=savedGoogleSession();
+    if(next && next.access_token!==rescuedAuth.token){
+      const me=String(currentUser?.id||'');
+      if(next.user.id!==me) return; // Never switch characters without re-login.
+      const u=useCachedGoogleSession();
+      if(u) console.info('[AMBER LOGIN V32.2] Renewed cached session from Auth');
+    }
+  },45000);
+  function googleSignInFresh(){
+    // The original SDK may be waiting on a refresh mutex. A short-lived,
+    // independent OAuth client can initiate Google login without that lock.
+    const loginClient=window.supabase?.createClient?.(PROJECT_URL,PUBLISHABLE_KEY,{
+      auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false,
+        storageKey:'amber_v322_google_signin_only'}
+    });
+    return (loginClient||primarySb).auth.signInWithOAuth({
+      provider:'google',options:{redirectTo:location.origin+location.pathname,prompt:'select_account'}
+    });
+  }
   async function identity(){
     if(!sb)return null;
-    // Supabase Auth has returned 504 during busy periods. A valid cached session
-    // may be used to find the character, but RLS still verifies the actual JWT.
-    const {data:ses,error:e}=await authTimeout(sb.auth.getSession(),'GOOGLE_SESSION',14000);
-    if(e)throw e;
-    const session=ses?.session;
+    let session=null;
+    try{
+      const {data,error}=await authTimeout(sb.auth.getSession(),'GOOGLE_SESSION',9500);
+      if(error)throw error;
+      session=data?.session||null;
+    }catch(err){
+      if(transientAuthProblem(err)){
+        const cached=useCachedGoogleSession();
+        if(cached)return cached;
+        throw Error('GOOGLE_SESSION_REFRESH_UNAVAILABLE: เซสชันหมดอายุหรือ Google Auth ตอบช้า กรุณากดลงชื่อเข้าใช้ Google ใหม่');
+      }
+      throw err;
+    }
     if(!session)return null;
     try{
-      const {data,error}=await authTimeout(sb.auth.getUser(),'GOOGLE_VERIFY',8500);
+      const {data,error}=await authTimeout(sb.auth.getUser(),'GOOGLE_VERIFY',7500);
       if(error)throw error;
       if(data?.user?.id)return data.user;
       throw Error('GOOGLE_USER_MISSING');
     }catch(err){
-      const msg=String(err?.message||'');
-      const transient=/TIMEOUT|504|503|500|fetch|network|gateway|abort|temporar/i.test(msg) || [500,503,504].includes(Number(err?.status));
       const id=String(session.user?.id||'');
-      const validExpiry=Number(session.expires_at||0)>Date.now()/1000+30;
-      if(transient && session.access_token && validExpiry && /^[a-f0-9-]{36}$/i.test(id)){
-        console.warn('[AMBER LOGIN] Auth verification temporarily unavailable; server RLS will validate character read');
+      const valid=Number(session.expires_at||0)>Date.now()/1000+120
+        && /^[a-f0-9-]{36}$/i.test(id) && session.access_token;
+      if(transientAuthProblem(err)&&valid){
+        // The original SDK is usable; the protected character query verifies JWT.
+        console.warn('[AMBER LOGIN V32.2] Auth verify slow; RLS will validate saved character');
         return session.user;
+      }
+      if(transientAuthProblem(err)){
+        const cached=useCachedGoogleSession();
+        if(cached)return cached;
       }
       throw err;
     }
@@ -293,6 +378,7 @@
       if(typeof stop==='function')stop();
       state={...starter(),...remote,gender:remote.gender||profile?.gender||'male',character_created:true,party:1,auto:false};
     }else{
+      if(rescuedAuth)throw Error('GOOGLE_RECOVERY_NO_CHARACTER: ไม่พบเซฟบนเซิร์ฟเวอร์ กรุณาลงชื่อเข้าใช้ Google ใหม่');
       // A new Google account always creates a new character; never silently import another device's local save.
       // If a beta cloud save already exists, preserve its progress while recording name/gender one time.
       onlineBootStage='สร้างตัวละครครั้งแรก';
@@ -340,13 +426,14 @@
         showMessage('เข้าสู่ระบบ Google ก่อนเข้าเกม (เพิ่ม Gmail ใน Google Cloud Test users ก่อน)');
         controls([['🔐 เข้าสู่ระบบด้วย Google',async()=>{
           showMessage('กำลังเปิดหน้า Google...');
-          const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}});
+          const {error}=await googleSignInFresh();
           if(error)showError(error,'Google Login');
         }]]);
         return;
       }
       await loadCloud();
       onlineBootStage='พร้อมเล่น';
+      if(rescuedAuth)console.info('[AMBER LOGIN V32.2] Character loaded through RLS-verified cached JWT');
     }catch(e){showError(e,'เริ่มเกมออนไลน์')}
     finally{clearTimeout(bootWatchdog)}
   }
