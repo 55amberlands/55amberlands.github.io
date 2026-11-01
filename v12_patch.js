@@ -69,7 +69,7 @@ function combatLocalMirror(){
    Read-only; it cannot spend points, change player saves, or mint bonuses.
    Server values override the legacy browser mirror only after validation. */
 const powerBridge=(()=>{
- let snapshot=null,working=false,lastAttempt=0,retryAfter=0;
+ let snapshot=null,working=false,lastAttempt=0,retryAfter=0,failures=0;
  const cloud=()=>window.AMBER_CLOUD;
  const who=()=>String(cloud()?.getUser?.()?.id||'');
  const fingerprint=()=>{
@@ -97,7 +97,7 @@ const powerBridge=(()=>{
   if(!sdk||!u||!cloud()?.getStatus?.()?.cloudReady||working)return;
   const now=Date.now(),key=fingerprint();
   if(now<retryAfter||now-lastAttempt<2000)return;
-  if(!force&&get()&&now-lastAttempt<12000)return;
+  if(!force&&get()&&now-lastAttempt<60000)return;
   lastAttempt=now;working=true;
   try{
    const {data,error}=await sdk.rpc('amber_v318_power_snapshot');
@@ -105,10 +105,12 @@ const powerBridge=(()=>{
    if(!verify(data))throw Error('INVALID_SERVER_POWER_SNAPSHOT');
    if(who()!==u||fingerprint()!==key)return;
    snapshot={user:u,key,data};
+   failures=0;retryAfter=0;
    statStrip();updateExtended();
    // The player profile displays the same canonical combat() values when reopened.
   }catch(err){
-   retryAfter=Date.now()+4000;
+   failures=Math.min(5,failures+1);
+   retryAfter=Date.now()+Math.min(300000,30000*2**(failures-1));
    console.warn('[V31.8 power read]',err);
   }finally{working=false;}
  }
@@ -130,7 +132,7 @@ window.addEventListener('pageshow',()=>void powerBridge.refresh(true));
 document.addEventListener('visibilitychange',()=>{
  if(!document.hidden)void powerBridge.refresh(true);
 });
-setInterval(()=>{if(!document.hidden)void powerBridge.refresh();},12000);
+setInterval(()=>{if(!document.hidden)void powerBridge.refresh();},60000);
 setTimeout(()=>void powerBridge.refresh(true),1100);
 
 const mhBefore=maxHp, mmBefore=maxMp;

@@ -5,6 +5,12 @@
 'use strict';
 if(window.AMBER_OPEN_BETA)return;
 const KEY='55amberlands_open_beta_nov10_2026_seen_v1';
+// The login shield hides every direct body child except #amberOnlineGate.
+// Explicitly exempt the first-visit announcement even before Google login.
+const bannerVisibilityStyle=document.createElement('style');
+bannerVisibilityStyle.id='amberOpenBetaShieldException';
+bannerVisibilityStyle.textContent='html:not(.amber-ready) body>#amberOpenBetaNov10{visibility:visible!important} html:not(.amber-ready) body>#amberOpenBetaNov10 *{visibility:visible!important}';
+document.head.appendChild(bannerVisibilityStyle);
 let backdrop=null,oldFocus=null,oldOverflow=null;
 const seen=()=>{try{return localStorage.getItem(KEY)==='1';}catch(_){return false;}};
 function onKey(ev){if(ev.key==='Escape')close();}

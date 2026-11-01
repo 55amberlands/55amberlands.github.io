@@ -65,6 +65,7 @@ const TMULT = [0, 1, 2, 3.5, 6];
 let verifiedCards = null;
 let verifiedCardStamp = 0;
 let verifiedCardsBusy = null;
+let verifiedCardFailures = 0, verifiedCardRetryAt = 0;
 const verifiedKillCount = (name) => {
   if (online()) return verifiedCards && Object.prototype.hasOwnProperty.call(verifiedCards, name)
     ? Math.max(0, Math.floor(Number(verifiedCards[name]) || 0)) : 0;
@@ -72,7 +73,8 @@ const verifiedKillCount = (name) => {
 };
 async function syncVerifiedCards(force = false) {
   if (!online()) { verifiedCards = null; verifiedCardStamp = 0; return; }
-  if (!force && verifiedCards && Date.now() - verifiedCardStamp < 30000) return;
+  if (Date.now()<verifiedCardRetryAt) return;
+  if (!force && verifiedCards && Date.now() - verifiedCardStamp < 60000) return;
   if (verifiedCardsBusy) return verifiedCardsBusy;
   verifiedCardsBusy = (async () => {
     const {data, error} = await sb().rpc('amber_v291_verified_cards');
@@ -85,11 +87,16 @@ async function syncVerifiedCards(force = false) {
         verifiedCards[name] = Math.max(0, Math.floor(Number(count) || 0));
     }
     verifiedCardStamp = Date.now();
+    verifiedCardFailures=0;verifiedCardRetryAt=0;
     // Re-paint stats only if the card snapshot changed; do not save server counts in writable v25.ck.
     safe(() => renderTop());
   })();
   try { await verifiedCardsBusy; }
-  finally { verifiedCardsBusy = null; }
+  catch(e){
+    verifiedCardFailures=Math.min(5,verifiedCardFailures+1);
+    verifiedCardRetryAt=Date.now()+Math.min(300000,30000*2**(verifiedCardFailures-1));
+    throw e;
+  } finally { verifiedCardsBusy = null; }
 }
 const cardTier = (name, boss) => { const k = verifiedKillCount(name), T = boss ? BOSS_T : CARD_T; let t = 0; for (let i = 0; i < 4; i++) if (k >= T[i]) t = i + 1; return t; };
 function cardBonus(m, t) { const h = PX.hash(m.name) % 4, [k, base] = STAT4[h]; return { k, v: Math.round(base * TMULT[t] * (m.boss ? 3 : 1)), label: STAT4[h][2] }; }
@@ -140,6 +147,7 @@ function refreshTitles() {
 let serverTitles = null;
 let serverTitlesStamp = 0;
 let titleSyncBusy = null;
+let serverTitleFailures=0, serverTitleRetryAfter=0;
 /* AMBER_V3016_V28_TITLE_ASSET_RESTORED:
  * Keep the ORIGINAL titles and lightning frame class from the Codex V28 patch.
  * In V3015 a client-side placeholder with cls:'rain' prevented V28.addTitles()
@@ -164,7 +172,11 @@ for (const [id, name] of Object.entries(ULT_NAMES)) {
 }
 async function syncServerTitles(force = false) {
   if (!online()) { serverTitles = null; return null; }
-  if (!force && serverTitles && Date.now()-serverTitlesStamp < 30000) return serverTitles;
+  if(Date.now()<serverTitleRetryAfter){
+    if(serverTitles)return serverTitles;
+    throw Error('V310_TITLE_SERVER_RETRY_LATER');
+  }
+  if (!force && serverTitles && Date.now()-serverTitlesStamp < 60000) return serverTitles;
   if (titleSyncBusy) return titleSyncBusy;
   titleSyncBusy = (async () => {
     const { data, error } = await sb().rpc('amber_v310_title', {p_action:'get',p_title:null});
@@ -173,9 +185,15 @@ async function syncServerTitles(force = false) {
     serverTitles = { active:String(data.active || ''), requested:String(data.requested || 'auto'),
       owned:new Set(data.owned.filter(x=>typeof x === 'string')) };
     serverTitlesStamp = Date.now();
+    serverTitleFailures=0;serverTitleRetryAfter=0;
     return serverTitles;
   })();
-  try { return await titleSyncBusy; } finally { titleSyncBusy = null; }
+  try { return await titleSyncBusy; }
+  catch(e){
+    serverTitleFailures=Math.min(5,serverTitleFailures+1);
+    serverTitleRetryAfter=Date.now()+Math.min(300000,30000*2**(serverTitleFailures-1));
+    throw e;
+  } finally { titleSyncBusy = null; }
 }
 async function chooseServerTitle(id) {
   if (!online()) { safe(()=>notify('🔒 ต้องออนไลน์เพื่อเปลี่ยนฉายา')); return; }
@@ -184,6 +202,7 @@ async function chooseServerTitle(id) {
     const {data,error} = await sb().rpc('amber_v310_title',{p_action:'set',p_title:requested});
     if (error) throw error;
     if (!data?.ok) {safe(()=>notify('🔒 ไม่สามารถเลือกฉายานี้ได้: '+String(data?.reason || 'locked')));return;}
+    serverTitleRetryAfter=0;
     await syncServerTitles(true);
     const v=V(); v.titles.active = serverTitles?.requested || 'auto';
     // Display server-confirmed title; cloud autosave is NOT used to authorize it.
