@@ -56,13 +56,19 @@ async function purchase(id){
  }catch(e){notify('ซื้อไม่สำเร็จ: '+String(e.message||e).slice(0,100));}
 }
 // V28.9: Read-only server pet hunger. Browser never submits calculated hunger.
-let petStatusPending=false;
-async function refreshPetHunger(){
+let petStatusPending=false,lastPetPoll=0,petStatusRetryAfter=0;
+async function refreshPetHunger(force=false){
  if(!ready()||petStatusPending||document.hidden)return;
- petStatusPending=true;
+ const now=Date.now();
+ // Hunger is server-authoritative, but 5-second polling from every player
+ // was overwhelming PostgREST. Refresh promptly when opening the pet panel.
+ if(now<petStatusRetryAfter || (!force&&now-lastPetPoll<45000))return;
+ lastPetPoll=now;petStatusPending=true;
  try{
    const {data,error}=await cloud().getClient().rpc('amber_v289_pet_status');
-   if(error||!data?.ok||!data?.pet)return;
+   if(error)throw error;
+   if(!data?.ok||!data?.pet)return;
+   petStatusRetryAfter=0;
    const wasActive=!!pet().active;
    state.pet23={...state.pet23,...data.pet};
    const p=pet();
@@ -75,7 +81,7 @@ async function refreshPetHunger(){
    const toggleButton=$('amber23Toggle');
    if(toggleButton)toggleButton.textContent=p.active?'🐾 เก็บสัตว์เลี้ยง':'🐕 เรียกสัตว์เลี้ยง';
    if(wasActive&&!p.active){decorateScene();window.dispatchEvent(new Event('amber-v19-location'));}
- }catch(e){console.warn('[AMBER PET STATUS]',e)}finally{petStatusPending=false}
+ }catch(e){petStatusRetryAfter=Date.now()+60000;console.warn('[AMBER PET STATUS]',e)}finally{petStatusPending=false}
 }
 function currentEffect(k){return pet().active&&Number(pet().effects[k]||0)>Date.now()}
 function damageFactor(){return currentEffect('shield')?.75:1}
@@ -101,7 +107,7 @@ async function slotSkill(id){
  try{await window.AMBER_V278.pet('slot',id);showPet();}
  catch(e){notify('จัดสกิลไม่ได้: '+String(e.message||e).slice(0,85))}
 }
-function showPet(){consumeTime();refreshPetHunger();const p=pet(),slots=p.duo?2:1;openModal('🐶 จัดการสัตว์เลี้ยง',`<div class="amber23-petPanel"><img src="./assets/pet_dog_v23.png" alt="สุนัข"/><div><b>ลูกสุนัขผู้พิทักษ์</b><p id="amber23PetStatus">สถานะ: ${!p.owned?'🔒 ยังไม่ได้รับ':p.active?'🟢 กำลังติดตาม':'⚪ เก็บอยู่'}</p><p id="amber23PetHunger">🍖 ความอิ่ม ${Number(p.hunger).toFixed(1)}%</p><div class="amber23-hbar"><i id="amber23PetBar" style="width:${Math.floor(p.hunger)}%"></i></div>${p.hunger<=0?'<small style="color:#ff9292">⛔ หิว 0% เรียกสัตว์เลี้ยงไม่ได้ กรุณาให้อาหารจากกระเป๋า</small>':''}</div></div>
+function showPet(){consumeTime();void refreshPetHunger(true);const p=pet(),slots=p.duo?2:1;openModal('🐶 จัดการสัตว์เลี้ยง',`<div class="amber23-petPanel"><img src="./assets/pet_dog_v23.png" alt="สุนัข"/><div><b>ลูกสุนัขผู้พิทักษ์</b><p id="amber23PetStatus">สถานะ: ${!p.owned?'🔒 ยังไม่ได้รับ':p.active?'🟢 กำลังติดตาม':'⚪ เก็บอยู่'}</p><p id="amber23PetHunger">🍖 ความอิ่ม ${Number(p.hunger).toFixed(1)}%</p><div class="amber23-hbar"><i id="amber23PetBar" style="width:${Math.floor(p.hunger)}%"></i></div>${p.hunger<=0?'<small style="color:#ff9292">⛔ หิว 0% เรียกสัตว์เลี้ยงไม่ได้ กรุณาให้อาหารจากกระเป๋า</small>':''}</div></div>
  <button id="amber23Toggle" ${!p.owned?'disabled':''}>${p.active?'🐾 เก็บสัตว์เลี้ยง':'🐕 เรียกสัตว์เลี้ยง'}</button>
  <h3>✨ จัดช่องสกิล (${p.skills.length}/${slots}) ${p.duo?'🎴 DUO':''}</h3><div class="amber23-skills">${Object.entries(SPEC).map(([id,sk])=>`<button data-am23-slot="${id}" ${!p.unlocked.includes(id)?'disabled':''}><b>${sk.name}</b><small>${!p.unlocked.includes(id)?'🔒 ซื้อแยกจาก Item Shop':p.skills.includes(id)?'✅ ติดตั้งแล้ว — แตะเพื่อถอด':'แตะเพื่อติดตั้ง'} · CD ${sk.cooldown/1000} วินาที</small></button>`).join('')}</div><p class="hint">🛡️ เกราะลดดาเมจ 25% · 💚 ฟื้น HP 10% และ MP 8% ทุก 3 วินาที · ⚔️ ATK +30% (มีระยะเวลาบัฟและคูลดาวน์ เพื่อรักษาสมดุล)</p><button id="amber23ToShop">💠 ไป Item Shop</button>`);
  $('amber23Toggle')?.addEventListener('click',toggle);
@@ -150,8 +156,8 @@ const st=document.createElement('style');st.textContent=`
 window.AMBER_PET={pet,presenceInfo,decorateScene,showPet,damageFactor,attackFactor,cast};
 setInterval(()=>{if(pet().active)autoSkills()},3000);
 setInterval(regen,3000);setInterval(updateChip,1800);
-setInterval(()=>{if(ready()&&(pet().active||$('amber23PetHunger')))refreshPetHunger()},5000);
-window.addEventListener('focus',refreshPetHunger);
+setInterval(()=>{if(ready()&&(pet().active||$('amber23PetHunger')))void refreshPetHunger()},45000);
+window.addEventListener('focus',()=>void refreshPetHunger(true));
 window.addEventListener('focus',()=>{consumeTime();decorateScene()});
 setTimeout(()=>{pet();decorateScene()},750);
 })();
