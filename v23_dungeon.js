@@ -27,6 +27,7 @@ async function loadDungeonCooldowns(){
 const announce=(s)=>{if(typeof notify==='function')notify(s);else console.log('[DG23]',s)};
 let id='',room=null,view=false,busy=false,attackBusy=false,auto=false,attackTimer=null,selected='',lastAttack=0,lastSync=0,syncBusy=false,attachedRoom=null;
 let inviteList=[],inviteShown='',rewardsCache=null,showPicker=false,restoreUser='',lastBoss=0;
+let invitesPending=false,lastInvitesPoll=0,invitesRetryAfter=0;
 let bossBusy=false,healBusy=false,reviveBusy=false,cooldownUntil=0,combatSqlWarned=false;
 let dungeonCooldowns={dragon:0,ice:0};
 const roomKey=()=>`amber_dg23_room_${uid()}`;
@@ -168,8 +169,19 @@ function open(){if(!eligible()){announce('เข้าดันเจียน�
  $('amber24CheckInvites')?.addEventListener('click',()=>checkInvites(true));
  loadDungeonCooldowns();
 }
-async function checkInvites(show=false){if(!online()||id&&room?.status==='active')return;
- try{const list=await rpc('invites');inviteList=Array.isArray(list)?list:[];renderInvites();if(inviteList.length&&inviteList[0].room_id!==inviteShown){inviteShown=inviteList[0].room_id;announce('📨 มีคำเชิญลงดันเจียน · กดตอบรับตรงหน้าแมพ');}else if(show&&!inviteList.length)announce('ไม่มีคำเชิญใหม่');}catch(e){if(show)error(e)}}
+async function checkInvites(show=false){
+ if(!online()||(id&&room?.status==='active')||invitesPending)return;
+ const now=Date.now();
+ if(!show&&(now<invitesRetryAfter||now-lastInvitesPoll<30000))return;
+ lastInvitesPoll=now;invitesPending=true;
+ try{
+  const list=await rpc('invites');inviteList=Array.isArray(list)?list:[];invitesRetryAfter=0;
+  renderInvites();
+  if(inviteList.length&&inviteList[0].room_id!==inviteShown){inviteShown=inviteList[0].room_id;announce('📨 มีคำเชิญลงดันเจียน · กดตอบรับตรงหน้าแมพ');}
+  else if(show&&!inviteList.length)announce('ไม่มีคำเชิญใหม่');
+ }catch(e){invitesRetryAfter=Date.now()+60000;if(show)error(e)}
+ finally{invitesPending=false}
+}
 async function respond(yes,roomId){if(busy)return;busy=true;try{await rpc('answer',{p_room:roomId,p_accept:yes});inviteList=inviteList.filter(x=>x.room_id!==roomId);
  if(yes){id=roomId;room=null;localStorage.setItem(roomKey(),id);await sync(true);if(room)showWorld();}
  else{renderInvites();announce('ปฏิเสธคำเชิญแล้ว');}signal(yes?'join':'decline');
@@ -358,7 +370,7 @@ const st=document.createElement('style');st.textContent=`
 window.AMBER_DUNGEON={open,roomId:()=>inside()&&view?id:'',presenceInfo,checkInvites,room:()=>room,isInside:inside,isViewing:inView,startAuto:toggleAuto,useHpPotion:useDungeonPotion}; // V299_DUNGEON_HP_POTION_EXPORT
 setInterval(()=>{attach();restore();if(id&&online()&&!document.hidden){if(inside()&&inView())bossTick();else sync();}},3200);
 setInterval(()=>{const c=$('amber24CoolDown');if(c){c.textContent='⏳ '+cdText();}refreshDungeonOptions();},1000);
-setInterval(()=>{if(online()&&!document.hidden&&!inView())checkInvites(false)},9000);
+setInterval(()=>{if(online()&&!document.hidden&&!inView())checkInvites(false)},30000);
 window.addEventListener('amber-v19-realtime',()=>{attach();restore();sync(true)});
 window.addEventListener('focus',()=>{restore();if(id)sync(true)});
 window.addEventListener('pageshow',()=>{restore();if(id)sync(true)});
