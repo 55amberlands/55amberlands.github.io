@@ -443,8 +443,13 @@
       if(typeof stop==='function')stop();
       state={...starter(),...remote,gender:remote.gender||profile?.gender||'male',character_created:true,party:1,auto:false};
     }else{
-      if(rescuedAuth)throw Error('GOOGLE_RECOVERY_NO_CHARACTER: ไม่พบเซฟบนเซิร์ฟเวอร์ กรุณาลงชื่อเข้าใช้ Google ใหม่');
-      // A new Google account always creates a new character; never silently import another device's local save.
+      // An existing player's cloud character must never be silently replaced
+      // due to a transient permission/replication fault returning an empty row.
+      let samePriorGoogleAccount=false;
+      try{samePriorGoogleAccount=localStorage.getItem('amber_cloud_last_user')===currentUser.id;}catch(_){}
+      if(rescuedAuth||samePriorGoogleAccount)
+        throw Error('CHARACTER_MISSING_FOR_EXISTING_ACCOUNT: เซฟเดิมไม่ปรากฏบนเซิร์ฟเวอร์ กรุณาลองใหม่ ห้ามสร้างตัวละครทับ');
+      // A genuinely new Google account can still create its first character.
       // If a beta cloud save already exists, preserve its progress while recording name/gender one time.
       onlineBootStage='สร้างตัวละครครั้งแรก';
       const created=await firstCharacter(remote);
