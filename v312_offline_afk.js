@@ -5,7 +5,7 @@
 (()=>{
 'use strict';
 if(window.AMBER_V312)return;
-let busy=false,last=null,dim=false,lastSync=0;
+let busy=false,last=null,dim=false,lastSync=0,statusPending=false,statusRetryAfter=0;
 const rpc=(action,monster)=>window.AMBER_CLOUD?.getClient?.()?.rpc('amber_v312_afk',{p_action:action,p_monster_id:monster||null});
 const ready=()=>!!(window.AMBER_CLOUD?.getUser?.()?.id&&window.AMBER_CLOUD?.getStatus?.()?.cloudReady&&window.AMBER_CLOUD?.getClient?.());
 const $=id=>document.getElementById(id);
@@ -117,10 +117,19 @@ async function action(kind){
  }catch(e){toast('⚠️ โหมดประหยัดพลังงาน: '+String(e.message||e).slice(0,120));}
  finally{busy=false;redraw();}
 }
-async function actionStatus(){
- if(!ready())return;
- try{const r=await rpc('status');if(!r.error&&r.data?.ok){last=r.data;lastSync=Date.now();}}catch(e){console.warn('[AFK status]',e)}
- redraw();
+async function actionStatus(force=false){
+ if(!ready()||statusPending||(!force&&Date.now()<statusRetryAfter))return;
+ statusPending=true;
+ try{
+  const r=await rpc('status');
+  if(r?.error)throw r.error;
+  if(r?.data?.ok){last=r.data;lastSync=Date.now();statusRetryAfter=0;}
+  else throw Error('AFK_STATUS_NOT_CONFIRMED');
+ }catch(e){
+  // During Supabase 503/504, retry at most once per minute per device.
+  statusRetryAfter=Date.now()+60000;
+  console.warn('[AFK status]',e);
+ }finally{statusPending=false;redraw();}
 }
 function panel(){
  const host=$('modalBody');
@@ -179,7 +188,7 @@ quickButtonObserver.observe(document.body,{childList:true,subtree:true});
 window.AMBER_V312={open:openAfk,powerSave:lightMode,refresh:actionStatus,status:()=>last};
 window.addEventListener('pageshow',()=>{installQuickButtons();if(ready())void actionStatus();});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&ready())void actionStatus();});
-setInterval(()=>{installQuickButtons();if(ready()&&!document.hidden&&Date.now()-lastSync>30000)void actionStatus();},7000);
+setInterval(()=>{installQuickButtons();if(ready()&&!document.hidden&&Date.now()-lastSync>(last?.active?45000:90000))void actionStatus();},20000);
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{installQuickButtons();if(ready())void actionStatus();},{once:true});
 else {installQuickButtons();if(ready())void actionStatus();}
 console.info('[V31.4] Screen-off AFK button visible in realtime scene and AUTO controls');
