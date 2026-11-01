@@ -85,7 +85,9 @@
   function showError(err,context='เชื่อมต่อ'){
     console.error('[AMBER ONLINE]',context,'stage:',onlineBootStage,err);
     const where=context==='เริ่มเกมออนไลน์'?' (ขั้นตอน: '+onlineBootStage+')':'';
-    showMessage(context+where+' ไม่สำเร็จ: '+onlineFailureText(err));
+    const reason=onlineFailureText(err);
+    const busy=/timeout|context canceled|deadline|57014|503|504|500|network request failed|fetch failed/i.test(reason) || [500,503,504].includes(Number(err?.status));
+    showMessage(context+where+' ไม่สำเร็จ: '+(busy?'Supabase ตอบช้าหรือเซิร์ฟเวอร์มีภาระสูง · ข้อมูลตัวละครยังไม่หาย · ':'')+reason);
     controls([['ลองอีกครั้ง',()=>location.reload()]]);
   }
   async function identity(){
@@ -243,6 +245,7 @@
     }else{
       // A new Google account always creates a new character; never silently import another device's local save.
       // If a beta cloud save already exists, preserve its progress while recording name/gender one time.
+      onlineBootStage='สร้างตัวละครครั้งแรก';
       const created=await firstCharacter(remote);
       if(typeof stop==='function')stop();
       state={...starter(),...created,auto:false,party:1};
@@ -252,15 +255,27 @@
     localStorage.setItem('amber_cloud_last_user',currentUser.id);
     STATUS.cloudReady=true;STATUS.signedIn=true;stateText();
     onlineBootStage='ซิงก์โปรไฟล์';
-    await syncProfile(true);
+    // Profile sync is cosmetic/social only. Failure must not lock out an
+    // authenticated user whose server character was loaded successfully.
+    try{await syncProfile(true);}catch(e){
+      console.warn('[AMBER ONLINE] Profile synchronization delayed; character retained',e);
+    }
     onlineBootStage='ตรวจสอบไฟล์เกม';
     await hideOverlay();
     const onl=document.getElementById('onl');if(onl)onl.textContent='🟡 กำลังเชื่อมผู้เล่น';
     if(timer)clearInterval(timer);
-    timer=setInterval(async()=>{await saveCloud();await syncProfile().catch(e=>console.warn('profile',e))},15000);
+    timer=setInterval(async()=>{await saveCloud();await syncProfile().catch(e=>console.warn('profile',e))},60000);
   }
   async function boot(){
     makeOverlay();
+    // Supabase may be reachable while Auth/PostgREST is overloaded. Never leave
+    // players on an infinite silent spinner; do not bypass Google authentication.
+    const bootWatchdog=setTimeout(()=>{
+      if(!STATUS.cloudReady && ui.overlay && onlineBootStage!=='สร้างตัวละครครั้งแรก'){
+        showMessage('⏳ เซิร์ฟเวอร์ Supabase ตอบช้าผิดปกติ (ขั้นตอน: '+onlineBootStage+') · ตัวละครยังอยู่บนเซิร์ฟเวอร์');
+        controls([['🔄 ลองเชื่อมต่ออีกครั้ง',()=>location.reload()]]);
+      }
+    },18000);
     if(!sb){showMessage('ไม่สามารถโหลด Supabase SDK ได้ กรุณาต่ออินเทอร์เน็ตแล้วรีเฟรช');controls([['ลองอีกครั้ง',()=>location.reload()]]);return}
     try{
       onlineBootStage='ตรวจสอบ Google Login';
@@ -277,6 +292,7 @@
       await loadCloud();
       onlineBootStage='พร้อมเล่น';
     }catch(e){showError(e,'เริ่มเกมออนไลน์')}
+    finally{clearTimeout(bootWatchdog)}
   }
   // Match the small set of Claude API calls already used by the game's V10 social code.
   const userApi={
