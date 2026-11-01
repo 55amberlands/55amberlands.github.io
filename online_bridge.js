@@ -11,6 +11,15 @@
   const TOPIC = 'amberlands:lobby';
   const STATUS = {signedIn:false, cloudReady:false, realtime:false, message:'กำลังเริ่มระบบออนไลน์'};
   const pause = ms => new Promise(r => setTimeout(r, ms));
+  // Never strand an Android browser forever while GoTrue/PostgREST is returning
+  // 503/504 or an SDK refresh lock is waiting. This does not sign anyone out.
+  function bounded(p,ms,label){
+    let t;
+    return Promise.race([
+      Promise.resolve(p),
+      new Promise((_,reject)=>{t=setTimeout(()=>reject(new Error('TIMEOUT_'+label+' หลัง '+Math.round(ms/1000)+' วินาที')),ms)})
+    ]).finally(()=>clearTimeout(t));
+  }
   window.AMBER_ONLINE_GAME=true;
   const sb = window.supabase?.createClient?.(PROJECT_URL, PUBLISHABLE_KEY, {
     auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
@@ -52,8 +61,19 @@
   // The original HTML engine starts first; Pixel V24 and server V30 load later.
   async function hideOverlay(){
     if(document.readyState!=='complete'){
-      showMessage('กำลังเตรียมเกม 55 AMBERLANDS เวอร์ชันล่าสุด...');
-      await new Promise(resolve=>window.addEventListener('load',resolve,{once:true}));
+      showMessage('กำลังเตรียมไฟล์เกม 55 AMBERLANDS...');
+      await Promise.race([
+        new Promise(resolve=>window.addEventListener('load',resolve,{once:true})),
+        pause(12000)
+      ]);
+    }
+    // Android WebView sometimes never dispatches window.load for an unrelated
+    // image. Poll the required modules instead of waiting for that image forever.
+    for(let attempt=0;attempt<20;attempt++){
+      if(typeof render==='function'&&window.PX?.anim?._t
+        &&typeof window.AMBER_V277?.invoke==='function'
+        &&typeof window.AMBER_V300_VITALS?.get==='function')break;
+      await pause(450);
     }
     const missing=[];
     if(typeof render!=='function')missing.push('GAME_RENDER');
@@ -88,13 +108,30 @@
     const reason=onlineFailureText(err);
     const busy=/timeout|context canceled|deadline|57014|503|504|500|network request failed|fetch failed/i.test(reason) || [500,503,504].includes(Number(err?.status));
     showMessage(context+where+' ไม่สำเร็จ: '+(busy?'Supabase ตอบช้าหรือเซิร์ฟเวอร์มีภาระสูง · ข้อมูลตัวละครยังไม่หาย · ':'')+reason);
-    controls([['ลองอีกครั้ง',()=>location.reload()]]);
+    controls([
+      ['🔄 ลองเชื่อมต่อใหม่',()=>location.reload()],
+      ['🔐 เข้าสู่ระบบด้วย Google อีกครั้ง',async()=>{
+        showMessage('กำลังเปิด Google Login...');
+        try{
+          const {error}=await bounded(sb.auth.signInWithOAuth({
+            provider:'google',options:{redirectTo:location.origin+location.pathname}
+          }),15000,'GOOGLE_REDIRECT');
+          if(error)throw error;
+        }catch(e){showMessage('Google Login ไม่สำเร็จ: '+onlineFailureText(e));}
+      }]
+    ]);
   }
   async function identity(){
     if(!sb)return null;
-    const {data:ses,error:e}=await sb.auth.getSession();if(e)throw e;
+    onlineBootStage='อ่าน Google Session';
+    showMessage('🔐 กำลังตรวจสอบ Google Session...');
+    const {data:ses,error:e}=await bounded(sb.auth.getSession(),30000,'GOOGLE_SESSION');
+    if(e)throw e;
     if(!ses?.session)return null;
-    const {data,error}=await sb.auth.getUser();if(error)throw error;
+    onlineBootStage='ยืนยัน Google User';
+    showMessage('🔐 กำลังยืนยันบัญชี Google...');
+    const {data,error}=await bounded(sb.auth.getUser(),20000,'GOOGLE_USER');
+    if(error)throw error;
     return data?.user || null;
   }
   function gameState(){
@@ -231,11 +268,19 @@
   async function loadCloud(){
     onlineBootStage='อ่านข้อมูลตัวละครจาก Supabase';
     showMessage('กำลังโหลดตัวละครจากบัญชี Google...');
-    const [{data,error},{data:profile,error:pe}]=await Promise.all([
-      sb.from(SAVE_TABLE).select('save_data,character_name,market_version').eq('user_id',currentUser.id).maybeSingle(),
-      sb.from(PROFILE_TABLE).select('display_name,gender,character_created').eq('user_id',currentUser.id).maybeSingle()
+    // The authoritative character is mandatory. The cosmetic profile is not:
+    // a temporary 401/503/504 from amber_profiles must never lock out a saved hero.
+    const [characterResult,profileResult]=await Promise.all([
+      bounded(sb.from(SAVE_TABLE).select('save_data,character_name,market_version')
+        .eq('user_id',currentUser.id).maybeSingle(),24000,'CHARACTER_READ'),
+      bounded(sb.from(PROFILE_TABLE).select('display_name,gender,character_created')
+        .eq('user_id',currentUser.id).maybeSingle(),7000,'PROFILE_READ')
+        .catch(e=>({data:null,error:e}))
     ]);
-    if(error)throw error;if(pe)throw pe;
+    const {data,error}=characterResult;
+    if(error)throw error;
+    if(profileResult.error)console.warn('[AMBER ONLINE] Optional profile read failed; character safe',profileResult.error);
+    const profile=profileResult.data||null;
     marketVersion=Number(data?.market_version)||0;
     let remote=data?.save_data&&typeof data.save_data==='object'&&Object.keys(data.save_data).length?data.save_data:null;
     if(remote?.character_created===true || profile?.character_created===true){
@@ -257,7 +302,7 @@
     onlineBootStage='ซิงก์โปรไฟล์';
     // Profile sync is cosmetic/social only. Failure must not lock out an
     // authenticated user whose server character was loaded successfully.
-    try{await syncProfile(true);}catch(e){
+    try{await bounded(syncProfile(true),7000,'PROFILE_SYNC');}catch(e){
       console.warn('[AMBER ONLINE] Profile synchronization delayed; character retained',e);
     }
     onlineBootStage='ตรวจสอบไฟล์เกม';
@@ -270,12 +315,13 @@
     makeOverlay();
     // Supabase may be reachable while Auth/PostgREST is overloaded. Never leave
     // players on an infinite silent spinner; do not bypass Google authentication.
+    showMessage('🔐 กำลังเริ่มตรวจสอบ Google Login...');
     const bootWatchdog=setTimeout(()=>{
-      if(!STATUS.cloudReady && ui.overlay && onlineBootStage!=='สร้างตัวละครครั้งแรก'){
-        showMessage('⏳ เซิร์ฟเวอร์ Supabase ตอบช้าผิดปกติ (ขั้นตอน: '+onlineBootStage+') · ตัวละครยังอยู่บนเซิร์ฟเวอร์');
-        controls([['🔄 ลองเชื่อมต่ออีกครั้ง',()=>location.reload()]]);
+      if(ui.overlay && onlineBootStage!=='สร้างตัวละครครั้งแรก'){
+        showMessage('⏳ ยังเข้าเกมไม่สำเร็จ (ขั้นตอน: '+onlineBootStage+') · Supabase อาจตอบช้า · เซฟของคุณยังอยู่');
+        controls([['🔄 โหลดใหม่และลองอีกครั้ง',()=>location.reload()]]);
       }
-    },18000);
+    },16000);
     if(!sb){showMessage('ไม่สามารถโหลด Supabase SDK ได้ กรุณาต่ออินเทอร์เน็ตแล้วรีเฟรช');controls([['ลองอีกครั้ง',()=>location.reload()]]);return}
     try{
       onlineBootStage='ตรวจสอบ Google Login';
