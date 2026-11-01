@@ -68,7 +68,26 @@
     document.documentElement.classList.add('amber-ready');
     ui.overlay?.remove();ui.overlay=null;ui.label=null;ui.controls=null;
   }
-  function showError(err,context='เชื่อมต่อ'){console.error('[AMBER ONLINE]',context,err);showMessage(context+' ไม่สำเร็จ: '+(err?.message||String(err)));controls([['ลองอีกครั้ง',()=>location.reload()]])}
+  // Never stringify an opaque PostgREST/Google error as "{}" or "[object Object]".
+  // Restrict visible details to common diagnostic fields; do not expose tokens.
+  let onlineBootStage='เริ่มต้น';
+  function onlineFailureText(err){
+    if(typeof err==='string'&&err.trim()&&err.trim()!=='{}')return err.slice(0,350);
+    const parts=[];
+    for(const k of ['message','error_description','details','hint','code','status']){
+      const value=err?.[k];
+      if((typeof value==='string'||typeof value==='number')&&String(value).trim()&&String(value)!=='{}')
+        parts.push(k==='message'?String(value):k+': '+String(value));
+    }
+    if(err?.cause?.message)parts.push('cause: '+String(err.cause.message));
+    return parts.length?parts.join(' | ').slice(0,350):'ระบบไม่ส่งรายละเอียดข้อผิดพลาด โปรดลองรีเฟรชและตรวจการเชื่อมต่อ';
+  }
+  function showError(err,context='เชื่อมต่อ'){
+    console.error('[AMBER ONLINE]',context,'stage:',onlineBootStage,err);
+    const where=context==='เริ่มเกมออนไลน์'?' (ขั้นตอน: '+onlineBootStage+')':'';
+    showMessage(context+where+' ไม่สำเร็จ: '+onlineFailureText(err));
+    controls([['ลองอีกครั้ง',()=>location.reload()]]);
+  }
   async function identity(){
     if(!sb)return null;
     const {data:ses,error:e}=await sb.auth.getSession();if(e)throw e;
@@ -208,6 +227,7 @@
     });
   })}
   async function loadCloud(){
+    onlineBootStage='อ่านข้อมูลตัวละครจาก Supabase';
     showMessage('กำลังโหลดตัวละครจากบัญชี Google...');
     const [{data,error},{data:profile,error:pe}]=await Promise.all([
       sb.from(SAVE_TABLE).select('save_data,character_name,market_version').eq('user_id',currentUser.id).maybeSingle(),
@@ -227,10 +247,13 @@
       if(typeof stop==='function')stop();
       state={...starter(),...created,auto:false,party:1};
     }
+    onlineBootStage='เตรียมหน้าตัวละคร';
     currentHp=mob().hp;save();render();
     localStorage.setItem('amber_cloud_last_user',currentUser.id);
     STATUS.cloudReady=true;STATUS.signedIn=true;stateText();
+    onlineBootStage='ซิงก์โปรไฟล์';
     await syncProfile(true);
+    onlineBootStage='ตรวจสอบไฟล์เกม';
     await hideOverlay();
     const onl=document.getElementById('onl');if(onl)onl.textContent='🟡 กำลังเชื่อมผู้เล่น';
     if(timer)clearInterval(timer);
@@ -240,6 +263,7 @@
     makeOverlay();
     if(!sb){showMessage('ไม่สามารถโหลด Supabase SDK ได้ กรุณาต่ออินเทอร์เน็ตแล้วรีเฟรช');controls([['ลองอีกครั้ง',()=>location.reload()]]);return}
     try{
+      onlineBootStage='ตรวจสอบ Google Login';
       currentUser=await identity();
       if(!currentUser){
         showMessage('เข้าสู่ระบบ Google ก่อนเข้าเกม (เพิ่ม Gmail ใน Google Cloud Test users ก่อน)');
@@ -251,6 +275,7 @@
         return;
       }
       await loadCloud();
+      onlineBootStage='พร้อมเล่น';
     }catch(e){showError(e,'เริ่มเกมออนไลน์')}
   }
   // Match the small set of Claude API calls already used by the game's V10 social code.
