@@ -53,7 +53,12 @@
   async function hideOverlay(){
     if(document.readyState!=='complete'){
       showMessage('กำลังเตรียมเกม 55 AMBERLANDS เวอร์ชันล่าสุด...');
-      await new Promise(resolve=>window.addEventListener('load',resolve,{once:true}));
+      // Large image/asset downloads may never complete the browser "load" event.
+      // Game scripts below are verified separately; cap this decorative wait.
+      await Promise.race([
+        new Promise(resolve=>window.addEventListener('load',resolve,{once:true})),
+        pause(4500)
+      ]);
     }
     const missing=[];
     if(typeof render!=='function')missing.push('GAME_RENDER');
@@ -88,14 +93,42 @@
     const reason=onlineFailureText(err);
     const busy=/timeout|context canceled|deadline|57014|503|504|500|network request failed|fetch failed/i.test(reason) || [500,503,504].includes(Number(err?.status));
     showMessage(context+where+' ไม่สำเร็จ: '+(busy?'Supabase ตอบช้าหรือเซิร์ฟเวอร์มีภาระสูง · ข้อมูลตัวละครยังไม่หาย · ':'')+reason);
-    controls([['ลองอีกครั้ง',()=>location.reload()]]);
+    const actions=[['🔄 ลองอีกครั้ง',()=>location.reload()]];
+    if(/Google|GOOGLE|SESSION|VERIFY|TOKEN|401|403|JWT|invalid.*refresh/i.test(context+' '+reason))
+      actions.push(['🔐 ลงชื่อเข้าใช้ Google ใหม่',async()=>{
+        showMessage('กำลังเปิด Google Login...');
+        const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname,prompt:'select_account'}});
+        if(error)showError(error,'Google Login');
+      }]);
+    controls(actions);
+  }
+  function authTimeout(p,label,ms=10000){
+    return Promise.race([p,new Promise((_,reject)=>setTimeout(()=>reject(Error(label+'_TIMEOUT')),ms))]);
   }
   async function identity(){
     if(!sb)return null;
-    const {data:ses,error:e}=await sb.auth.getSession();if(e)throw e;
-    if(!ses?.session)return null;
-    const {data,error}=await sb.auth.getUser();if(error)throw error;
-    return data?.user || null;
+    // Supabase Auth has returned 504 during busy periods. A valid cached session
+    // may be used to find the character, but RLS still verifies the actual JWT.
+    const {data:ses,error:e}=await authTimeout(sb.auth.getSession(),'GOOGLE_SESSION',14000);
+    if(e)throw e;
+    const session=ses?.session;
+    if(!session)return null;
+    try{
+      const {data,error}=await authTimeout(sb.auth.getUser(),'GOOGLE_VERIFY',8500);
+      if(error)throw error;
+      if(data?.user?.id)return data.user;
+      throw Error('GOOGLE_USER_MISSING');
+    }catch(err){
+      const msg=String(err?.message||'');
+      const transient=/TIMEOUT|504|503|500|fetch|network|gateway|abort|temporar/i.test(msg) || [500,503,504].includes(Number(err?.status));
+      const id=String(session.user?.id||'');
+      const validExpiry=Number(session.expires_at||0)>Date.now()/1000+30;
+      if(transient && session.access_token && validExpiry && /^[a-f0-9-]{36}$/i.test(id)){
+        console.warn('[AMBER LOGIN] Auth verification temporarily unavailable; server RLS will validate character read');
+        return session.user;
+      }
+      throw err;
+    }
   }
   function gameState(){
     // state, starter, save, render, stop are existing top-level game bindings.
@@ -231,14 +264,31 @@
   async function loadCloud(){
     onlineBootStage='อ่านข้อมูลตัวละครจาก Supabase';
     showMessage('กำลังโหลดตัวละครจากบัญชี Google...');
-    const [{data,error},{data:profile,error:pe}]=await Promise.all([
-      sb.from(SAVE_TABLE).select('save_data,character_name,market_version').eq('user_id',currentUser.id).maybeSingle(),
-      sb.from(PROFILE_TABLE).select('display_name,gender,character_created').eq('user_id',currentUser.id).maybeSingle()
-    ]);
-    if(error)throw error;if(pe)throw pe;
+    // The RLS-protected character row is the only required login fetch.
+    // Profile/roster metadata may time out under load and must not block play.
+    const {data,error}=await authTimeout(
+      sb.from(SAVE_TABLE).select('save_data,character_name,market_version')
+        .eq('user_id',currentUser.id).maybeSingle(),
+      'CHARACTER_LOAD',14500);
+    if(error)throw error;
     marketVersion=Number(data?.market_version)||0;
     let remote=data?.save_data&&typeof data.save_data==='object'&&Object.keys(data.save_data).length?data.save_data:null;
-    if(remote?.character_created===true || profile?.character_created===true){
+    let profile=null;
+    const characterExists=!!remote &&
+      (remote.character_created===true || (typeof remote.name==='string'&&remote.name.length>=2&&Number(remote.lv)>=1));
+    if(!characterExists){
+      try{
+        const p=await authTimeout(
+          sb.from(PROFILE_TABLE).select('display_name,gender,character_created')
+           .eq('user_id',currentUser.id).maybeSingle(),
+          'PROFILE_LOAD',6500);
+        if(p.error)throw p.error;
+        profile=p.data||null;
+      }catch(e){
+        console.warn('[AMBER LOGIN] Optional profile fetch unavailable',e);
+      }
+    }
+    if(characterExists || profile?.character_created===true){
       if(!remote)throw new Error('พบโปรไฟล์แต่ไม่มีข้อมูลเซฟ กรุณาติดต่อผู้ดูแล');
       if(typeof stop==='function')stop();
       state={...starter(),...remote,gender:remote.gender||profile?.gender||'male',character_created:true,party:1,auto:false};
@@ -251,7 +301,11 @@
       state={...starter(),...created,auto:false,party:1};
     }
     onlineBootStage='เตรียมหน้าตัวละคร';
-    currentHp=mob().hp;save();render();
+    currentHp=mob().hp;
+    // The cloud save remains authoritative; a full localStorage bucket on
+    // Android must never prevent the character from rendering.
+    try{save()}catch(e){console.warn('[AMBER LOGIN] Device cache is full; cloud character preserved',e)}
+    render();
     localStorage.setItem('amber_cloud_last_user',currentUser.id);
     STATUS.cloudReady=true;STATUS.signedIn=true;stateText();
     onlineBootStage='ซิงก์โปรไฟล์';
@@ -264,7 +318,9 @@
     await hideOverlay();
     const onl=document.getElementById('onl');if(onl)onl.textContent='🟡 กำลังเชื่อมผู้เล่น';
     if(timer)clearInterval(timer);
-    timer=setInterval(async()=>{await saveCloud();await syncProfile().catch(e=>console.warn('profile',e))},60000);
+    // Do not UPDATE the profile every minute just to repeat the same name.
+    // The profile is synchronized once on boot; autosave below handles UI only.
+    timer=setInterval(()=>{if(!document.hidden)void saveCloud()},60000);
   }
   async function boot(){
     makeOverlay();
